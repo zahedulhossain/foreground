@@ -14,7 +14,7 @@ const BUCKETS = [
 
 const STORAGE_KEY = "squadflow:state:v1";
 
-const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true };
+const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true };
 
 const PALETTE = ["#c8853b", "#7c9a6d", "#9a6d8e", "#5d8a9a", "#b5654d", "#8a7c5d"];
 
@@ -23,10 +23,11 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-.sf-root { --bg:#1c1a17; --panel:#252320; --panel-2:#2c2925; --line:#39352f; --ink:#ece6db; --ink-dim:#a39c8e; --ink-faint:#6f685c; --accent:#d4943f; --danger:#b5654d; }
+.sf-root { --bg:#1c1a17; --panel:#252320; --panel-2:#2c2925; --line:#39352f; --ink:#ece6db; --ink-dim:#a39c8e; --ink-faint:#6f685c; --accent:#d4943f; --danger:#b5654d; --side-bg:#181614; --btn-ink:#1c1a17; --warn-bg:rgba(181,101,77,.14); --warn-border:rgba(181,101,77,.4); --warn-ink:#e0a48f; --squad-hover:rgba(212,148,63,.08); }
+.sf-root.light { --bg:#f5f1ea; --panel:#ffffff; --panel-2:#f9f5ec; --line:#e2dac8; --ink:#2a2620; --ink-dim:#6b6356; --ink-faint:#9a9080; --accent:#b87420; --danger:#a64a30; --side-bg:#ece5d3; --btn-ink:#fff8ec; --warn-bg:rgba(166,74,48,.08); --warn-border:rgba(166,74,48,.35); --warn-ink:#8a3d27; --squad-hover:rgba(184,116,32,.08); }
 .sf-root *{box-sizing:border-box;}
 .sf-root{ background:var(--bg); color:var(--ink); font-family:'IBM Plex Sans',sans-serif; min-height:100vh; display:flex; }
-.sf-side{ width:56px; flex:0 0 56px; background:#181614; border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; padding:18px 0; position:sticky; top:0; height:100vh; }
+.sf-side{ width:56px; flex:0 0 56px; background:var(--side-bg); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; padding:18px 0; position:sticky; top:0; height:100vh; }
 .sf-side-spacer{ flex:1; }
 .sf-nav{ width:36px; height:36px; border-radius:9px; background:transparent; border:0; color:var(--ink-faint); cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; margin:4px 0; transition:background .15s ease, color .15s ease; }
 .sf-nav:hover{ background:var(--panel); color:var(--ink-dim); }
@@ -45,7 +46,7 @@ const styles = `
 .sf-toggle{ position:relative; width:40px; height:22px; background:var(--panel-2); border:1px solid var(--line); border-radius:11px; cursor:pointer; padding:0; transition:background .15s ease; flex:0 0 auto; }
 .sf-toggle::after{ content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--ink-faint); transition:left .15s ease, background .15s ease; }
 .sf-toggle.on{ background:var(--accent); border-color:var(--accent); }
-.sf-toggle.on::after{ left:20px; background:#1c1a17; }
+.sf-toggle.on::after{ left:20px; background:var(--btn-ink); }
 .sf-set-btn{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 14px; font-size:13px; font-family:inherit; cursor:pointer; transition:border-color .15s ease, color .15s ease; }
 .sf-set-btn:hover{ border-color:var(--accent); color:var(--accent); }
 .sf-set-btn.danger:hover{ border-color:var(--danger); color:var(--danger); }
@@ -73,7 +74,7 @@ const styles = `
 .sf-input:focus{ border-color:var(--accent); }
 .sf-input::placeholder{ color:var(--ink-faint); }
 .sf-sel{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px; font-size:13px; font-family:inherit; outline:none; cursor:pointer; }
-.sf-btn{ background:var(--accent); color:#1c1a17; border:0; border-radius:8px; padding:10px 16px; font-weight:600; font-size:14px; cursor:pointer; font-family:inherit; transition:transform .08s ease, filter .15s ease; }
+.sf-btn{ background:var(--accent); color:var(--btn-ink); border:0; border-radius:8px; padding:10px 16px; font-weight:600; font-size:14px; cursor:pointer; font-family:inherit; transition:transform .08s ease, filter .15s ease; }
 .sf-btn:hover{ filter:brightness(1.08); }
 .sf-btn:active{ transform:translateY(1px); }
 .sf-btn:disabled{ opacity:.4; cursor:not-allowed; }
@@ -88,21 +89,25 @@ const styles = `
 .sf-col-count.over{ color:var(--danger); font-weight:500; }
 .sf-col-hint{ font-size:11.5px; color:var(--ink-faint); margin-bottom:12px; }
 
-.sf-cap-warn{ background:rgba(181,101,77,.14); border:1px solid rgba(181,101,77,.4); color:#e0a48f; font-size:12px; padding:7px 10px; border-radius:8px; margin-bottom:10px; }
+.sf-cap-warn{ background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-ink); font-size:12px; padding:7px 10px; border-radius:8px; margin-bottom:10px; }
 
 .sf-task{ background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; transition:border-color .15s ease; }
 .sf-task:hover{ border-color:#4a453d; }
 .sf-task.done{ opacity:.45; }
 .sf-task.done .sf-task-title{ text-decoration:line-through; }
 .sf-check{ flex:0 0 auto; width:18px; height:18px; border-radius:5px; border:1.5px solid var(--ink-faint); background:transparent; cursor:pointer; margin-top:2px; display:flex; align-items:center; justify-content:center; padding:0; }
-.sf-check.on{ background:var(--accent); border-color:var(--accent); color:#1c1a17; font-size:12px; font-weight:700; }
+.sf-check.on{ background:var(--accent); border-color:var(--accent); color:var(--btn-ink); font-size:12px; font-weight:700; }
 .sf-task-body{ flex:1; min-width:0; }
 .sf-task-title{ font-size:14px; line-height:1.4; word-break:break-word; cursor:text; border-radius:4px; padding:1px 3px; margin:-1px -3px; }
-.sf-task-title:hover{ background:rgba(212,148,63,.08); }
+.sf-task-title:hover{ background:var(--squad-hover); }
 .sf-task-edit{ width:100%; background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:6px; padding:4px 7px; font-size:14px; font-family:inherit; outline:none; line-height:1.4; }
 .sf-meta{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .sf-chip{ font-size:10.5px; padding:2px 7px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
-.sf-chip-squad{ color:#1c1a17; font-weight:500; }
+.sf-chip-squad{ color:var(--btn-ink); font-weight:500; cursor:pointer; border:0; padding:2px 7px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; }
+.sf-chip-squad:hover{ filter:brightness(1.1); }
+.sf-chip-squad-add{ background:transparent; border:1px dashed var(--line); color:var(--ink-faint); cursor:pointer; padding:1px 7px; font-size:10.5px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
+.sf-chip-squad-add:hover{ border-color:var(--accent); color:var(--accent); }
+.sf-chip-edit{ background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:20px; padding:2px 8px; font-size:10.5px; font-family:'IBM Plex Mono',monospace; outline:none; width:110px; letter-spacing:.02em; }
 .sf-chip-person{ background:var(--panel); border:1px solid var(--line); color:var(--ink-dim); }
 .sf-chip-date{ background:transparent; border:1px solid var(--line); color:var(--ink-faint); }
 .sf-chip-date.due{ color:var(--danger); border-color:rgba(181,101,77,.5); }
@@ -114,7 +119,7 @@ const styles = `
 .sf-move{ position:relative; }
 .sf-move-menu{ position:absolute; right:0; top:100%; margin-top:4px; background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:4px; z-index:20; box-shadow:0 8px 24px rgba(0,0,0,.4); min-width:130px; }
 .sf-move-item{ display:block; width:100%; text-align:left; background:transparent; border:0; color:var(--ink-dim); padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer; font-family:inherit; }
-.sf-move-item:hover{ background:var(--accent); color:#1c1a17; }
+.sf-move-item:hover{ background:var(--accent); color:var(--btn-ink); }
 
 .sf-balance{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin-top:24px; }
 .sf-balance-title{ font-family:'Fraunces',serif; font-weight:600; font-size:16px; margin-bottom:3px; }
@@ -147,6 +152,8 @@ export default function App() {
   const [openMenu, setOpenMenu] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editingSquadId, setEditingSquadId] = useState(null);
+  const [editSquadDraft, setEditSquadDraft] = useState("");
 
   const startEdit = (t) => { setEditingId(t.id); setEditDraft(t.title); };
   const cancelEdit = () => { setEditingId(null); setEditDraft(""); };
@@ -155,6 +162,17 @@ export default function App() {
     if (editingId && title) update(editingId, { title });
     setEditingId(null);
     setEditDraft("");
+  };
+
+  const startSquadEdit = (t) => { setEditingSquadId(t.id); setEditSquadDraft(t.squad || ""); };
+  const cancelSquadEdit = () => { setEditingSquadId(null); setEditSquadDraft(""); };
+  const commitSquadEdit = () => {
+    if (editingSquadId) {
+      const v = editSquadDraft.trim();
+      update(editingSquadId, { squad: v || null });
+    }
+    setEditingSquadId(null);
+    setEditSquadDraft("");
   };
 
   // Load once
@@ -313,7 +331,7 @@ export default function App() {
 
   if (!loaded) {
     return (
-      <div className="sf-root">
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         <Sidebar view={view} setView={setView} />
         <main className="sf-main"><div className="sf-wrap"><p className="sf-empty">Loading your board…</p></div></main>
@@ -334,7 +352,7 @@ export default function App() {
     });
 
     return (
-      <div className="sf-root">
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         <Sidebar view={view} setView={setView} />
         <main className="sf-main">
@@ -409,7 +427,7 @@ export default function App() {
 
   if (view === "settings") {
     return (
-      <div className="sf-root">
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         <Sidebar view={view} setView={setView} />
         <main className="sf-main">
@@ -420,6 +438,22 @@ export default function App() {
             </header>
             <hr className="sf-rule" />
             <div className="sf-settings-card">
+              <div className="sf-set-row">
+                <div>
+                  <div className="sf-set-label">Dark mode</div>
+                  <div className="sf-set-desc">
+                    Warm dark by default. Switch to light if you'd rather work on a cream
+                    background.
+                  </div>
+                </div>
+                <button
+                  className={"sf-toggle" + (settings.darkMode ? " on" : "")}
+                  onClick={() => setSettings((s) => ({ ...s, darkMode: !s.darkMode }))}
+                  aria-pressed={settings.darkMode}
+                  aria-label="Toggle dark mode"
+                />
+              </div>
+
               <div className="sf-set-row">
                 <div>
                   <div className="sf-set-label">Today cap</div>
@@ -509,7 +543,7 @@ export default function App() {
   }
 
   return (
-    <div className="sf-root" onClick={() => setOpenMenu(null)}>
+    <div className={"sf-root" + (settings.darkMode ? "" : " light")} onClick={() => setOpenMenu(null)}>
       <style>{styles}</style>
       <Sidebar view={view} setView={setView} />
       <main className="sf-main">
@@ -609,11 +643,34 @@ export default function App() {
                             title="Click to edit"
                           >{t.title}</div>
                         )}
-                        <div className="sf-meta">
-                          {t.squad && (
-                            <span className="sf-chip sf-chip-squad" style={{ background: squadColor(t.squad) }}>
-                              {t.squad}
-                            </span>
+                        <div className="sf-meta" onClick={(e) => e.stopPropagation()}>
+                          {editingSquadId === t.id ? (
+                            <input
+                              autoFocus
+                              className="sf-chip-edit"
+                              list="sf-squads"
+                              placeholder="squad"
+                              value={editSquadDraft}
+                              onChange={(e) => setEditSquadDraft(e.target.value)}
+                              onBlur={commitSquadEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); commitSquadEdit(); }
+                                else if (e.key === "Escape") { e.preventDefault(); cancelSquadEdit(); }
+                              }}
+                            />
+                          ) : t.squad ? (
+                            <button
+                              className="sf-chip sf-chip-squad"
+                              style={{ background: squadColor(t.squad) }}
+                              onClick={() => startSquadEdit(t)}
+                              title="Click to edit squad"
+                            >{t.squad}</button>
+                          ) : (
+                            <button
+                              className="sf-chip-squad-add"
+                              onClick={() => startSquadEdit(t)}
+                              title="Tag with a squad"
+                            >+ squad</button>
                           )}
                           {bucket.id === "waiting" && (
                             <>
