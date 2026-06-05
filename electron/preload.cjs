@@ -9,3 +9,8 @@ contextBridge.exposeInMainWorld("storage", {
   delete: (key) => ipcRenderer.invoke("storage:delete", key),
   list: (prefix) => ipcRenderer.invoke("storage:list", prefix),
 });
+
+contextBridge.exposeInMainWorld("jira", {
+  fetch: (creds, key) => ipcRenderer.invoke("jira:fetch", creds, key),
+  test: (creds) => ipcRenderer.invoke("jira:test", creds),
+});

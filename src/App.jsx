@@ -13,8 +13,23 @@ const BUCKETS = [
 ];
 
 const STORAGE_KEY = "squadflow:state:v1";
+const JIRA_KEY = "squadflow:jira:v1";
 
 const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true };
+
+// Match a JIRA issue key — uppercase letters + numbers, dash, digits.
+const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]+-\d+)\b/;
+// Match a browse URL like https://acme.atlassian.net/browse/PROJ-123
+const JIRA_URL_RE = /https?:\/\/[^\s]+\/browse\/([A-Z][A-Z0-9]+-\d+)/;
+
+function detectJira(text) {
+  if (!text) return null;
+  const urlM = text.match(JIRA_URL_RE);
+  if (urlM) return { key: urlM[1], url: urlM[0] };
+  const keyM = text.match(JIRA_KEY_RE);
+  if (keyM) return { key: keyM[1], url: null };
+  return null;
+}
 
 const PALETTE = ["#c8853b", "#7c9a6d", "#9a6d8e", "#5d8a9a", "#b5654d", "#8a7c5d"];
 
@@ -64,6 +79,22 @@ const styles = `
 .sf-arc-meta{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .sf-arc-actions{ display:flex; gap:4px; flex:0 0 auto; }
 .sf-arc-bulk{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:8px; font-size:12.5px; color:var(--ink-dim); }
+
+.sf-chip-jira{ display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:20px; border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; text-decoration:none; cursor:pointer; }
+.sf-chip-jira:hover{ border-color:var(--accent); color:var(--ink); }
+.sf-chip-jira .sf-jira-key{ font-weight:600; color:var(--ink); }
+.sf-chip-jira .sf-jira-status{ color:var(--ink-faint); }
+.sf-chip-jira.cat-done .sf-jira-status{ color:#7c9a6d; }
+.sf-chip-jira.cat-indeterminate .sf-jira-status{ color:var(--accent); }
+.sf-chip-jira .sf-jira-refresh{ background:transparent; border:0; color:var(--ink-faint); cursor:pointer; font-size:11px; padding:0 0 0 4px; line-height:1; font-family:inherit; }
+.sf-chip-jira .sf-jira-refresh:hover{ color:var(--accent); }
+.sf-chip-jira.loading{ opacity:.6; }
+
+.sf-jira-grid{ display:grid; grid-template-columns:140px 1fr; gap:10px 14px; align-items:center; margin-top:6px; }
+.sf-jira-grid label{ font-size:12.5px; color:var(--ink-dim); }
+.sf-jira-grid input{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
+.sf-jira-grid input:focus{ border-color:var(--accent); }
+.sf-jira-actions{ display:flex; gap:8px; align-items:center; margin-top:14px; }
 .sf-mono{ font-family:'IBM Plex Mono',monospace; }
 .sf-h1{ font-family:'Fraunces',serif; font-weight:900; font-size:34px; letter-spacing:-0.02em; margin:0; line-height:1; }
 .sf-sub{ color:var(--ink-dim); font-size:13.5px; margin-top:8px; max-width:560px; line-height:1.5; }
@@ -91,10 +122,15 @@ const styles = `
 
 .sf-cap-warn{ background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-ink); font-size:12px; padding:7px 10px; border-radius:8px; margin-bottom:10px; }
 
-.sf-task{ background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; transition:border-color .15s ease; }
-.sf-task:hover{ border-color:#4a453d; }
+.sf-task{ background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; transition:border-color .15s ease, opacity .15s ease, transform .15s ease; cursor:grab; }
+.sf-task:hover{ border-color:var(--accent); }
 .sf-task.done{ opacity:.45; }
 .sf-task.done .sf-task-title{ text-decoration:line-through; }
+.sf-task.dragging{ opacity:.35; cursor:grabbing; }
+.sf-task.drop-before{ box-shadow:0 -2px 0 var(--accent); }
+.sf-col.drop-target{ background:var(--squad-hover); border-color:var(--accent); }
+.sf-grip{ flex:0 0 auto; color:var(--ink-faint); font-size:12px; padding:2px 0; cursor:grab; user-select:none; line-height:1; letter-spacing:-1px; }
+.sf-grip:hover{ color:var(--ink-dim); }
 .sf-check{ flex:0 0 auto; width:18px; height:18px; border-radius:5px; border:1.5px solid var(--ink-faint); background:transparent; cursor:pointer; margin-top:2px; display:flex; align-items:center; justify-content:center; padding:0; }
 .sf-check.on{ background:var(--accent); border-color:var(--accent); color:var(--btn-ink); font-size:12px; font-weight:700; }
 .sf-task-body{ flex:1; min-width:0; }
@@ -146,6 +182,9 @@ export default function App() {
   const [view, setView] = useState("board"); // board | archive | settings
   const [ioStatus, setIoStatus] = useState(null); // { kind: "ok"|"err", msg }
   const fileInputRef = React.useRef(null);
+  const [jiraCreds, setJiraCreds] = useState({ baseUrl: "", email: "", token: "", cloudId: "" });
+  const [jiraTestStatus, setJiraTestStatus] = useState(null); // { kind, msg }
+  const [jiraLoadingId, setJiraLoadingId] = useState(null);
   const [draft, setDraft] = useState("");
   const [draftBucket, setDraftBucket] = useState("today");
   const [draftSquad, setDraftSquad] = useState("");
@@ -159,9 +198,41 @@ export default function App() {
   const cancelEdit = () => { setEditingId(null); setEditDraft(""); };
   const commitEdit = () => {
     const title = editDraft.trim();
-    if (editingId && title) update(editingId, { title });
+    const id = editingId;
+    if (id && title) {
+      const current = tasks.find((t) => t.id === id);
+      update(id, { title });
+      // If the edited title now references a different Jira key (or the first one), re-enrich.
+      const detected = detectJira(title);
+      const currentKey = current && current.jira && current.jira.key;
+      if (detected && detected.key !== currentKey) {
+        enrichWithJira(id, detected.key, detected.url);
+      }
+    }
     setEditingId(null);
     setEditDraft("");
+  };
+
+  const [dragId, setDragId] = useState(null);
+  const [dropBeforeId, setDropBeforeId] = useState(null);
+  const [dropBucket, setDropBucket] = useState(null);
+
+  const moveTask = (id, targetBucket, beforeId) => {
+    setTasks((prev) => {
+      const idx = prev.findIndex((t) => t.id === id);
+      if (idx < 0) return prev;
+      const moved = { ...prev[idx], bucket: targetBucket };
+      const without = prev.filter((t) => t.id !== id);
+      if (beforeId && beforeId !== id) {
+        const targetIdx = without.findIndex((t) => t.id === beforeId);
+        if (targetIdx >= 0) {
+          return [...without.slice(0, targetIdx), moved, ...without.slice(targetIdx)];
+        }
+      }
+      // No anchor → append. Since render filters by bucket, this places it at the
+      // bottom of the target bucket.
+      return [...without, moved];
+    });
   };
 
   const startSquadEdit = (t) => { setEditingSquadId(t.id); setEditSquadDraft(t.squad || ""); };
@@ -189,11 +260,79 @@ export default function App() {
         }
       } catch (e) {
         // No existing key — fresh start. Not an error worth surfacing.
-      } finally {
-        setLoaded(true);
       }
+      try {
+        const jres = await window.storage.get(JIRA_KEY);
+        if (jres && jres.value) {
+          const parsed = JSON.parse(jres.value);
+          setJiraCreds({
+            baseUrl: parsed.baseUrl || "",
+            email: parsed.email || "",
+            token: parsed.token || "",
+            cloudId: parsed.cloudId || "",
+          });
+        }
+      } catch {}
+      setLoaded(true);
     })();
   }, []);
+
+  const persistJiraCreds = useCallback(async (next) => {
+    setJiraCreds(next);
+    try { await window.storage.set(JIRA_KEY, JSON.stringify(next)); } catch {}
+  }, []);
+
+  // Two valid shapes:
+  //   - classic: baseUrl + email + token (Basic auth against tenant URL)
+  //   - scoped:  token + cloudId        (Bearer via api.atlassian.com)
+  // baseUrl is still useful in the scoped case for the click-through link.
+  const jiraConfigured = !!(
+    jiraCreds.token && (
+      (jiraCreds.baseUrl && jiraCreds.email) ||
+      jiraCreds.cloudId
+    )
+  );
+
+  // Attach Jira metadata to a task. Resilient: if creds are missing or the
+  // fetch fails, we still attach the key + URL so the click-to-open chip works.
+  const enrichWithJira = useCallback(async (id, key, fallbackUrl) => {
+    if (!key) return;
+    setJiraLoadingId(id);
+    try {
+      if (jiraConfigured) {
+        const data = await window.jira.fetch(jiraCreds, key);
+        update(id, {
+          jira: {
+            key: data.key,
+            url: data.url,
+            summary: data.summary,
+            status: data.status,
+            statusCategory: data.statusCategory,
+            syncedAt: Date.now(),
+          },
+        });
+      } else {
+        // No creds: stash whatever we can derive from the text.
+        const guessed = fallbackUrl || (jiraCreds.baseUrl
+          ? `${jiraCreds.baseUrl.replace(/\/+$/, "")}/browse/${key}`
+          : null);
+        update(id, { jira: { key, url: guessed, syncedAt: Date.now() } });
+      }
+    } catch (e) {
+      // Keep the key/URL even on failure so the chip still works as a link.
+      update(id, {
+        jira: {
+          key,
+          url: fallbackUrl || null,
+          error: String(e && e.message || e),
+          syncedAt: Date.now(),
+        },
+      });
+    } finally {
+      setJiraLoadingId(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraCreds, jiraConfigured]);
 
   // Persist on change (after initial load)
   useEffect(() => {
@@ -244,6 +383,8 @@ export default function App() {
     };
     setTasks((prev) => [t, ...prev]);
     setDraft("");
+    const detected = detectJira(title);
+    if (detected) enrichWithJira(t.id, detected.key, detected.url);
   };
 
   const update = (id, patch) =>
@@ -526,6 +667,104 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+              <div className="sf-set-row" style={{ display: "block" }}>
+                <div>
+                  <div className="sf-set-label">Jira integration {jiraConfigured && <span style={{ color: "#7c9a6d", fontSize: 11, marginLeft: 6 }}>● connected</span>}</div>
+                  <div className="sf-set-desc">
+                    Paste a Jira link or key (like <span className="sf-mono">PROJ-123</span>) into a task title
+                    and SquadFlow will pull the summary and current status. Create a token at{" "}
+                    <span className="sf-mono">id.atlassian.com/manage-profile/security/api-tokens</span>.
+                    SquadFlow only reads — it calls{" "}
+                    <span className="sf-mono">GET /rest/api/3/issue/{`{key}`}</span> and nothing else.
+                    <br /><br />
+                    <b>Two token types are supported.</b> Both share the same{" "}
+                    <span className="sf-mono">ATATT…</span> prefix, so check how you created it on the Atlassian token page.
+                    <br />
+                    • <b>Classic API token</b> (no scopes selected at creation) — simplest path. Fill in your{" "}
+                    <b>email</b> and the token; leave Cloud ID blank. Auth uses Basic against your tenant URL.
+                    The token inherits your Jira permissions — you need <b>Browse Projects</b> on the projects
+                    whose issues you want to enrich.<br />
+                    • <b>Scoped API token</b> (scopes picked at creation) — leave email <b>blank</b>, fill in
+                    Cloud ID (instructions appear below the form). SquadFlow routes through{" "}
+                    <span className="sf-mono">api.atlassian.com/ex/jira/{`{cloudId}`}/…</span>. Required scopes:{" "}
+                    <span className="sf-mono">read:jira-work</span> (or the narrower pair{" "}
+                    <span className="sf-mono">read:issue:jira</span> + <span className="sf-mono">read:issue-meta:jira</span>).
+                  </div>
+                </div>
+                <div className="sf-jira-grid">
+                  <label htmlFor="jira-base">Base URL</label>
+                  <input
+                    id="jira-base"
+                    type="text"
+                    placeholder="https://acme.atlassian.net"
+                    value={jiraCreds.baseUrl}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, baseUrl: e.target.value }))}
+                  />
+                  <label htmlFor="jira-email">Email <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(classic tokens only)</span></label>
+                  <input
+                    id="jira-email"
+                    type="email"
+                    placeholder="you@company.com — leave blank for scoped tokens"
+                    value={jiraCreds.email}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, email: e.target.value }))}
+                  />
+                  <label htmlFor="jira-token">API token</label>
+                  <input
+                    id="jira-token"
+                    type="password"
+                    placeholder="atatt..."
+                    value={jiraCreds.token}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, token: e.target.value }))}
+                  />
+                  <label htmlFor="jira-cloudid">Cloud ID <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(scoped tokens only)</span></label>
+                  <input
+                    id="jira-cloudid"
+                    type="text"
+                    placeholder="leave blank for classic tokens"
+                    value={jiraCreds.cloudId}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, cloudId: e.target.value }))}
+                  />
+                </div>
+                {!jiraCreds.email && (
+                  <div className="sf-set-desc" style={{ marginTop: 8 }}>
+                    <b>Finding your Cloud ID:</b> open{" "}
+                    <span className="sf-mono">{(jiraCreds.baseUrl || "https://YOUR-SITE.atlassian.net").replace(/\/+$/, "")}/_edge/tenant_info</span>{" "}
+                    in a browser while signed in — copy the <span className="sf-mono">cloudId</span> value from the JSON response.
+                    Required for scoped API tokens because Atlassian's auto-discovery endpoint often refuses them with a bare 401.
+                  </div>
+                )}
+                <div className="sf-jira-actions">
+                  <button
+                    className="sf-set-btn"
+                    onClick={async () => {
+                      setJiraTestStatus({ kind: "info", msg: "testing…" });
+                      try {
+                        const r = await window.jira.test(jiraCreds);
+                        setJiraTestStatus({ kind: "ok", msg: `Connected as ${r.displayName}.` });
+                        persistJiraCreds(jiraCreds);
+                      } catch (e) {
+                        setJiraTestStatus({ kind: "err", msg: String(e && e.message || e) });
+                      }
+                    }}
+                    disabled={!jiraCreds.baseUrl || !jiraCreds.token}
+                  >Test & save</button>
+                  {jiraConfigured && (
+                    <button
+                      className="sf-set-btn danger"
+                      onClick={() => {
+                        persistJiraCreds({ baseUrl: "", email: "", token: "" });
+                        setJiraTestStatus({ kind: "ok", msg: "Disconnected." });
+                      }}
+                    >Disconnect</button>
+                  )}
+                  {jiraTestStatus && (
+                    <span className={"sf-set-status " + (jiraTestStatus.kind === "ok" ? "ok" : jiraTestStatus.kind === "err" ? "err" : "")} style={{ marginTop: 0 }}>
+                      {jiraTestStatus.msg}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="sf-footer">
@@ -592,7 +831,28 @@ export default function App() {
             const cap = bucket.capped ? settings.todayCap : null;
             const over = cap != null && openN > cap;
             return (
-              <section className="sf-col" key={bucket.id}>
+              <section
+                className={"sf-col" + (dropBucket === bucket.id && !dropBeforeId ? " drop-target" : "")}
+                key={bucket.id}
+                onDragOver={(e) => {
+                  if (!dragId) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDropBucket(bucket.id);
+                  setDropBeforeId(null);
+                }}
+                onDragLeave={(e) => {
+                  // Only clear when leaving the column entirely, not when moving onto a child.
+                  if (e.currentTarget.contains(e.relatedTarget)) return;
+                  if (dropBucket === bucket.id) setDropBucket(null);
+                }}
+                onDrop={(e) => {
+                  if (!dragId) return;
+                  e.preventDefault();
+                  moveTask(dragId, bucket.id, dropBeforeId);
+                  setDragId(null); setDropBucket(null); setDropBeforeId(null);
+                }}
+              >
                 <div className="sf-col-head">
                   <span className="sf-col-title">{bucket.label}</span>
                   <span className={"sf-col-count" + (over ? " over" : "")}>
@@ -614,8 +874,40 @@ export default function App() {
 
                 {items.map((t) => {
                   const due = t.chaseDate && t.chaseDate <= today;
+                  const isDragging = dragId === t.id;
+                  const showDropLine = dropBeforeId === t.id && dragId && dragId !== t.id;
                   return (
-                    <div className={"sf-task" + (t.done ? " done" : "")} key={t.id}>
+                    <div
+                      className={
+                        "sf-task" + (t.done ? " done" : "") +
+                        (isDragging ? " dragging" : "") +
+                        (showDropLine ? " drop-before" : "")
+                      }
+                      key={t.id}
+                      draggable={editingId !== t.id && editingSquadId !== t.id}
+                      onDragStart={(e) => {
+                        setDragId(t.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        try { e.dataTransfer.setData("text/plain", t.id); } catch {}
+                      }}
+                      onDragEnd={() => { setDragId(null); setDropBucket(null); setDropBeforeId(null); }}
+                      onDragOver={(e) => {
+                        if (!dragId || dragId === t.id) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropBucket(bucket.id);
+                        setDropBeforeId(t.id);
+                      }}
+                      onDrop={(e) => {
+                        if (!dragId) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        moveTask(dragId, bucket.id, t.id === dragId ? null : t.id);
+                        setDragId(null); setDropBucket(null); setDropBeforeId(null);
+                      }}
+                    >
+                      <span className="sf-grip" title="Drag to reorder">⋮⋮</span>
                       <button
                         className={"sf-check" + (t.done ? " on" : "")}
                         onClick={() => update(t.id, { done: !t.done })}
@@ -671,6 +963,37 @@ export default function App() {
                               onClick={() => startSquadEdit(t)}
                               title="Tag with a squad"
                             >+ squad</button>
+                          )}
+                          {t.jira && t.jira.key && (
+                            <a
+                              className={
+                                "sf-chip-jira" +
+                                (t.jira.statusCategory ? " cat-" + t.jira.statusCategory : "") +
+                                (jiraLoadingId === t.id ? " loading" : "")
+                              }
+                              href={t.jira.url || "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => { if (!t.jira.url) e.preventDefault(); }}
+                              title={
+                                t.jira.error
+                                  ? `Couldn't sync: ${t.jira.error}`
+                                  : t.jira.summary || "Open in Jira"
+                              }
+                            >
+                              <span className="sf-jira-key">{t.jira.key}</span>
+                              {t.jira.status && <span className="sf-jira-status">· {t.jira.status}</span>}
+                              <button
+                                className="sf-jira-refresh"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  enrichWithJira(t.id, t.jira.key, t.jira.url);
+                                }}
+                                title="Refresh from Jira"
+                                disabled={jiraLoadingId === t.id}
+                              >↻</button>
+                            </a>
                           )}
                           {bucket.id === "waiting" && (
                             <>
