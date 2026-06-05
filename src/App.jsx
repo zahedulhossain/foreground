@@ -22,6 +22,57 @@ const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]+-\d+)\b/;
 // Match a browse URL like https://acme.atlassian.net/browse/PROJ-123
 const JIRA_URL_RE = /https?:\/\/[^\s]+\/browse\/([A-Z][A-Z0-9]+-\d+)/;
 
+// Minimal, safe-by-default markdown renderer for task titles. We escape HTML
+// first, then apply a small set of inline transformations — bold, italic,
+// inline code, [text](url) links, bare URLs, and newlines. Output is fed to
+// dangerouslySetInnerHTML, so every replacement must be either applied to
+// already-escaped text or produce values that are safe by construction (only
+// http/https URLs are linkified; the URL becomes an attribute value of a tag
+// whose other attributes are fixed).
+const escapeHtml = (s) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+function renderTitle(text, highlight) {
+  if (!text) return "";
+  let s = escapeHtml(text);
+  // Mark highlights with safe placeholders so markdown processing below can't
+  // mangle the <mark> tags or split them across link boundaries. The actual
+  // <mark> insertion happens at the very end.
+  if (highlight && highlight.trim()) {
+    const h = escapeHtml(highlight.trim()).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(h, "gi");
+    s = s.replace(re, (m) => `xHLSx${m}xHLEx`);
+  }
+  // Inline code (run first so other rules don't touch its contents)
+  s = s.replace(/`([^`]+)`/g, (_m, body) => `<code>${body}</code>`);
+  // Markdown link [text](url) — restrict scheme to http(s) to avoid javascript:
+  s = s.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (_m, label, url) => `<a href="${url}" target="_blank" rel="noreferrer">${label}</a>`
+  );
+  // Bare URLs (skip ones already inside an href="…")
+  s = s.replace(
+    /(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+    (_m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`
+  );
+  // Bold then italic (order matters so **x** isn't mangled by the * rule)
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+  // Resolve highlight placeholders into <mark> tags (done after markdown so
+  // matches can survive being wrapped by other inline spans).
+  s = s.replace(/xHLSx([\s\S]*?)xHLEx/g, "<mark>$1</mark>");
+  // Preserve newlines (CSS also has white-space:pre-wrap, but explicit <br>
+  // keeps copy-paste and screen readers happy)
+  s = s.replace(/\n/g, "<br>");
+  return s;
+}
+
+function autoSize(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 240) + "px";
+}
+
 function detectJira(text) {
   if (!text) return null;
   const urlM = text.match(JIRA_URL_RE);
@@ -75,7 +126,9 @@ const styles = `
 .sf-arc-date{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
 .sf-arc-item{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; }
 .sf-arc-body{ flex:1; min-width:0; }
-.sf-arc-title{ font-size:14px; line-height:1.4; color:var(--ink-dim); word-break:break-word; }
+.sf-arc-title{ font-size:14px; line-height:1.5; color:var(--ink-dim); word-break:break-word; overflow-wrap:anywhere; white-space:pre-wrap; }
+.sf-arc-title a{ color:var(--accent); text-decoration:none; border-bottom:1px dashed var(--accent); }
+.sf-arc-title code{ background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:0 4px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
 .sf-arc-meta{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .sf-arc-actions{ display:flex; gap:4px; flex:0 0 auto; }
 .sf-arc-bulk{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:8px; font-size:12.5px; color:var(--ink-dim); }
@@ -100,8 +153,26 @@ const styles = `
 .sf-sub{ color:var(--ink-dim); font-size:13.5px; margin-top:8px; max-width:560px; line-height:1.5; }
 .sf-rule{ height:1px; background:var(--line); margin:24px 0; border:0; }
 
-.sf-add{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px; }
-.sf-input{ flex:1 1 260px; min-width:0; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit; outline:none; }
+.sf-add{ display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px; }
+.sf-add-hint{ font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; margin-top:6px; padding:0 4px; }
+
+.sf-filter{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:14px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+.sf-filter-search{ flex:1 1 200px; min-width:0; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:6px 10px; font-size:13px; font-family:inherit; outline:none; }
+.sf-filter-search:focus{ border-color:var(--accent); }
+.sf-filter-search::placeholder{ color:var(--ink-faint); }
+.sf-filter-pills{ display:flex; gap:4px; flex-wrap:wrap; align-items:center; }
+.sf-filter-pill{ font-size:11px; padding:3px 9px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; border:1px solid var(--line); background:transparent; color:var(--ink-dim); cursor:pointer; transition:filter .12s ease; }
+.sf-filter-pill:hover{ border-color:var(--ink-dim); }
+.sf-filter-pill.active{ color:var(--btn-ink); font-weight:500; border-color:transparent; }
+.sf-filter-toggle{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink-dim); cursor:pointer; user-select:none; padding:4px 8px; border-radius:6px; }
+.sf-filter-toggle:hover{ color:var(--ink); }
+.sf-filter-toggle input{ accent-color:var(--accent); cursor:pointer; }
+.sf-filter-clear{ background:transparent; border:0; color:var(--ink-faint); font-size:11.5px; cursor:pointer; font-family:inherit; padding:4px 6px; border-radius:6px; }
+.sf-filter-clear:hover{ color:var(--danger); }
+.sf-filter-count{ font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; margin-left:auto; }
+.sf-task mark{ background:var(--accent); color:var(--btn-ink); padding:0 2px; border-radius:2px; }
+.sf-add-hint b{ color:var(--ink-dim); font-weight:500; }
+.sf-input{ flex:1 1 260px; min-width:0; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit; outline:none; resize:none; line-height:1.5; min-height:42px; max-height:240px; overflow-y:auto; }
 .sf-input:focus{ border-color:var(--accent); }
 .sf-input::placeholder{ color:var(--ink-faint); }
 .sf-sel{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px; font-size:13px; font-family:inherit; outline:none; cursor:pointer; }
@@ -134,9 +205,14 @@ const styles = `
 .sf-check{ flex:0 0 auto; width:18px; height:18px; border-radius:5px; border:1.5px solid var(--ink-faint); background:transparent; cursor:pointer; margin-top:2px; display:flex; align-items:center; justify-content:center; padding:0; }
 .sf-check.on{ background:var(--accent); border-color:var(--accent); color:var(--btn-ink); font-size:12px; font-weight:700; }
 .sf-task-body{ flex:1; min-width:0; }
-.sf-task-title{ font-size:14px; line-height:1.4; word-break:break-word; cursor:text; border-radius:4px; padding:1px 3px; margin:-1px -3px; }
+.sf-task-title{ font-size:14px; line-height:1.5; word-break:break-word; overflow-wrap:anywhere; white-space:pre-wrap; cursor:text; border-radius:4px; padding:1px 3px; margin:-1px -3px; }
 .sf-task-title:hover{ background:var(--squad-hover); }
-.sf-task-edit{ width:100%; background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:6px; padding:4px 7px; font-size:14px; font-family:inherit; outline:none; line-height:1.4; }
+.sf-task-title a{ color:var(--accent); text-decoration:none; border-bottom:1px dashed var(--accent); }
+.sf-task-title a:hover{ filter:brightness(1.15); }
+.sf-task-title code{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 4px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
+.sf-task-title strong{ font-weight:600; color:var(--ink); }
+.sf-task-title em{ font-style:italic; color:var(--ink-dim); }
+.sf-task-edit{ width:100%; background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:6px; padding:4px 7px; font-size:14px; font-family:inherit; outline:none; line-height:1.5; resize:none; min-height:28px; max-height:240px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
 .sf-meta{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .sf-chip{ font-size:10.5px; padding:2px 7px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
 .sf-chip-squad{ color:var(--btn-ink); font-weight:500; cursor:pointer; border:0; padding:2px 7px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; }
@@ -216,6 +292,40 @@ export default function App() {
   const [dragId, setDragId] = useState(null);
   const [dropBeforeId, setDropBeforeId] = useState(null);
   const [dropBucket, setDropBucket] = useState(null);
+
+  // Filter state — search applies to the visible title text; squadFilter is a
+  // Set of squad names (empty = include all squads); hideDone collapses done
+  // items out of the board entirely.
+  const [searchTerm, setSearchTerm] = useState("");
+  const [squadFilter, setSquadFilter] = useState(new Set());
+  const [hideDone, setHideDone] = useState(false);
+
+  const toggleSquadFilter = (name) => {
+    setSquadFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
+  const clearFilters = () => { setSearchTerm(""); setSquadFilter(new Set()); setHideDone(false); };
+
+  const trimmedSearch = searchTerm.trim().toLowerCase();
+  const filtersActive = !!trimmedSearch || squadFilter.size > 0 || hideDone;
+
+  const matchesFilters = useCallback((t) => {
+    if (hideDone && t.done) return false;
+    if (squadFilter.size > 0) {
+      // Untagged tasks never match a positive squad filter.
+      if (!t.squad || !squadFilter.has(t.squad)) return false;
+    }
+    if (trimmedSearch) {
+      const hay = (t.title || "").toLowerCase();
+      if (!hay.includes(trimmedSearch)) return false;
+    }
+    return true;
+  }, [hideDone, squadFilter, trimmedSearch]);
+  // filteredVisibleCount is defined further down, alongside activeTasks — it
+  // depends on it, and JS const declarations don't hoist.
 
   const moveTask = (id, targetBucket, beforeId) => {
     setTasks((prev) => {
@@ -406,6 +516,10 @@ export default function App() {
     [tasks]
   );
   const doneNotArchivedCount = activeTasks.filter((t) => t.done).length;
+  const filteredVisibleCount = useMemo(
+    () => activeTasks.filter(matchesFilters).length,
+    [activeTasks, matchesFilters]
+  );
 
   // Cross-squad balance: open (not done, not archived) items per squad
   const balance = useMemo(() => {
@@ -531,7 +645,10 @@ export default function App() {
                     {g.items.map((t) => (
                       <div className="sf-arc-item" key={t.id}>
                         <div className="sf-arc-body">
-                          <div className="sf-arc-title">{t.title}</div>
+                          <div
+                            className="sf-arc-title"
+                            dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
+                          />
                           <div className="sf-arc-meta">
                             {t.squad && (
                               <span className="sf-chip sf-chip-squad" style={{ background: squadColor(t.squad) }}>
@@ -799,12 +916,25 @@ export default function App() {
 
         {/* Quick add */}
         <div className="sf-add" onClick={(e) => e.stopPropagation()}>
-          <input
+          <textarea
             className="sf-input"
+            rows={1}
             placeholder="What needs doing? (e.g. Review Squad A's API design)"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addTask()}
+            onInput={(e) => autoSize(e.currentTarget)}
+            ref={(el) => autoSize(el)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                addTask();
+              }
+              // Cmd/Ctrl+Enter also submits — convenient when multi-line
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                addTask();
+              }
+            }}
           />
           <input
             className="sf-sel"
@@ -822,11 +952,60 @@ export default function App() {
           </select>
           <button className="sf-btn" onClick={addTask} disabled={!draft.trim()}>Add</button>
         </div>
+        <div className="sf-add-hint">
+          <b>Enter</b> to add · <b>Shift+Enter</b> for a new line · supports{" "}
+          <b>**bold**</b>, <b>*italic*</b>, <b>`code`</b>, and links
+        </div>
+
+        {/* Filter bar */}
+        <div className="sf-filter" onClick={(e) => e.stopPropagation()}>
+          <input
+            className="sf-filter-search"
+            type="search"
+            placeholder="Search titles…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setSearchTerm(""); }}
+          />
+          {squads.length > 0 && (
+            <div className="sf-filter-pills">
+              {squads.map((s) => {
+                const on = squadFilter.has(s);
+                return (
+                  <button
+                    key={s}
+                    className={"sf-filter-pill" + (on ? " active" : "")}
+                    style={on ? { background: squadColor(s) } : undefined}
+                    onClick={() => toggleSquadFilter(s)}
+                  >{s}</button>
+                );
+              })}
+            </div>
+          )}
+          <label className="sf-filter-toggle">
+            <input
+              type="checkbox"
+              checked={hideDone}
+              onChange={(e) => setHideDone(e.target.checked)}
+            />
+            hide done
+          </label>
+          {filtersActive && (
+            <>
+              <span className="sf-filter-count">
+                {filteredVisibleCount}/{activeTasks.length} shown
+              </span>
+              <button className="sf-filter-clear" onClick={clearFilters}>clear</button>
+            </>
+          )}
+        </div>
 
         {/* Buckets */}
         <div className="sf-grid">
           {BUCKETS.map((bucket) => {
-            const items = activeTasks.filter((t) => t.bucket === bucket.id);
+            const allInBucket = activeTasks.filter((t) => t.bucket === bucket.id);
+            const items = allInBucket.filter(matchesFilters);
+            const filteredOut = allInBucket.length - items.length;
             const openN = items.filter((t) => !t.done).length;
             const cap = bucket.capped ? settings.todayCap : null;
             const over = cap != null && openN > cap;
@@ -870,7 +1049,18 @@ export default function App() {
                   </div>
                 )}
 
-                {items.length === 0 && <p className="sf-empty">Nothing here yet.</p>}
+                {items.length === 0 && (
+                  <p className="sf-empty">
+                    {allInBucket.length === 0
+                      ? "Nothing here yet."
+                      : `Nothing matches the filter — ${filteredOut} hidden.`}
+                  </p>
+                )}
+                {items.length > 0 && filteredOut > 0 && (
+                  <div className="sf-col-hint" style={{ marginTop: -4, marginBottom: 8 }}>
+                    {filteredOut} hidden by filter
+                  </div>
+                )}
 
                 {items.map((t) => {
                   const due = t.chaseDate && t.chaseDate <= today;
@@ -916,24 +1106,38 @@ export default function App() {
 
                       <div className="sf-task-body">
                         {editingId === t.id ? (
-                          <input
+                          <textarea
                             autoFocus
                             className="sf-task-edit"
+                            rows={1}
                             value={editDraft}
                             onChange={(e) => setEditDraft(e.target.value)}
+                            onInput={(e) => autoSize(e.currentTarget)}
+                            ref={(el) => { if (el && editingId === t.id) autoSize(el); }}
                             onBlur={commitEdit}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
-                              else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                commitEdit();
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelEdit();
+                              }
                             }}
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
                           <div
                             className="sf-task-title"
-                            onClick={(e) => { e.stopPropagation(); startEdit(t); }}
-                            title="Click to edit"
-                          >{t.title}</div>
+                            onClick={(e) => {
+                              // Don't enter edit mode when the user clicks a link inside.
+                              if (e.target.tagName === "A") return;
+                              e.stopPropagation();
+                              startEdit(t);
+                            }}
+                            title="Click to edit · Shift+Enter for newline"
+                            dangerouslySetInnerHTML={{ __html: renderTitle(t.title, trimmedSearch) }}
+                          />
                         )}
                         <div className="sf-meta" onClick={(e) => e.stopPropagation()}>
                           {editingSquadId === t.id ? (
