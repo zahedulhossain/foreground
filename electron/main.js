@@ -6,11 +6,18 @@ import fs from "node:fs/promises";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === "development";
 
+// Pin the app name explicitly. Without this, Electron uses package.json's
+// `name` field in dev mode (lowercased, "foreground") but the packaged build
+// uses electron-builder's `productName` ("Foreground") — landing data in
+// *two different folders* depending on how you launched the app. Setting it
+// early makes both paths the same: ~/Library/Application Support/Foreground/
+app.setName("Foreground");
+
 // ── Persistent store ─────────────────────────────────────────────────────────
 // All data lives in a single JSON file in the OS app-data folder, e.g.
-//   macOS:   ~/Library/Application Support/SquadFlow/squadflow-data.json
-//   Windows: %APPDATA%/SquadFlow/squadflow-data.json
-//   Linux:   ~/.config/SquadFlow/squadflow-data.json
+//   macOS:   ~/Library/Application Support/Foreground/foreground-data.json
+//   Windows: %APPDATA%/Foreground/foreground-data.json
+//   Linux:   ~/.config/Foreground/foreground-data.json
 // It survives restarts and is easy to back up or sync.
 let storePath;
 let cache = null;
@@ -235,7 +242,7 @@ function createWindow() {
     minWidth: 640,
     minHeight: 520,
     backgroundColor: "#1c1a17",
-    title: "SquadFlow",
+    title: "Foreground",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -252,7 +259,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  storePath = path.join(app.getPath("userData"), "squadflow-data.json");
+  storePath = path.join(app.getPath("userData"), "foreground-data.json");
   registerStorageHandlers();
   registerJiraHandlers();
   createWindow();

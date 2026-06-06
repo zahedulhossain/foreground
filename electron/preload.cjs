@@ -1,6 +1,7 @@
-// Recreates the same `window.storage` API the renderer component expects,
-// but backed by the Electron main process (a JSON file on disk) instead of
-// the Claude artifact host. Same method shapes => the UI needs no changes.
+// Bridges renderer → main IPC for storage and Jira proxy calls. Storage is a
+// thin wrapper over a JSON file on disk in the user's app-data folder; Jira
+// calls live in main so we sidestep CORS and keep the cred handling outside
+// the renderer process.
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("storage", {

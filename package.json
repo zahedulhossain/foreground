@@ -1,8 +1,8 @@
 {
-  "name": "squadflow-desktop",
+  "name": "foreground",
   "version": "1.0.0",
-  "description": "A focused task instrument for staff engineers managing multiple squads.",
-  "author": "You",
+  "description": "A focused task instrument for people running work across multiple teams.",
+  "author": "Zahedul Hossain <md.zahedulhossain@gmail.com>",
   "license": "MIT",
   "main": "electron/main.js",
   "type": "module",
@@ -26,8 +26,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.you.squadflow",
-    "productName": "SquadFlow",
+    "appId": "app.foreground.desktop",
+    "productName": "Foreground",
     "files": [
       "dist/**/*",
       "electron/**/*"

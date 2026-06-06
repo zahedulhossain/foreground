@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 
-// ── SquadFlow ──────────────────────────────────────────────────────────────
-// A focused task instrument for a staff engineer managing multiple squads.
-// Four buckets, squad tagging, a "waiting on" view, and cross-squad balance.
+// ── Foreground ─────────────────────────────────────────────────────────────
+// A focused task instrument for people running work across multiple teams.
+// Four buckets, team tagging, a "waiting on" view, and cross-team balance.
 // Data persists across sessions via window.storage.
 
 const BUCKETS = [
@@ -12,8 +12,8 @@ const BUCKETS = [
   { id: "someday", label: "Someday", hint: "Out of your head, off your plate" },
 ];
 
-const STORAGE_KEY = "squadflow:state:v1";
-const JIRA_KEY = "squadflow:jira:v1";
+const STORAGE_KEY = "foreground:state:v1";
+const JIRA_KEY = "foreground:jira:v1";
 
 const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true };
 
@@ -89,8 +89,8 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-.sf-root { --bg:#1c1a17; --panel:#252320; --panel-2:#2c2925; --line:#39352f; --ink:#ece6db; --ink-dim:#a39c8e; --ink-faint:#6f685c; --accent:#d4943f; --danger:#b5654d; --side-bg:#181614; --btn-ink:#1c1a17; --warn-bg:rgba(181,101,77,.14); --warn-border:rgba(181,101,77,.4); --warn-ink:#e0a48f; --squad-hover:rgba(212,148,63,.08); }
-.sf-root.light { --bg:#f5f1ea; --panel:#ffffff; --panel-2:#f9f5ec; --line:#e2dac8; --ink:#2a2620; --ink-dim:#6b6356; --ink-faint:#9a9080; --accent:#b87420; --danger:#a64a30; --side-bg:#ece5d3; --btn-ink:#fff8ec; --warn-bg:rgba(166,74,48,.08); --warn-border:rgba(166,74,48,.35); --warn-ink:#8a3d27; --squad-hover:rgba(184,116,32,.08); }
+.sf-root { --bg:#1c1a17; --panel:#252320; --panel-2:#2c2925; --line:#39352f; --ink:#ece6db; --ink-dim:#a39c8e; --ink-faint:#6f685c; --accent:#d4943f; --danger:#b5654d; --side-bg:#181614; --btn-ink:#1c1a17; --warn-bg:rgba(181,101,77,.14); --warn-border:rgba(181,101,77,.4); --warn-ink:#e0a48f; --team-hover:rgba(212,148,63,.08); }
+.sf-root.light { --bg:#f5f1ea; --panel:#ffffff; --panel-2:#f9f5ec; --line:#e2dac8; --ink:#2a2620; --ink-dim:#6b6356; --ink-faint:#9a9080; --accent:#b87420; --danger:#a64a30; --side-bg:#ece5d3; --btn-ink:#fff8ec; --warn-bg:rgba(166,74,48,.08); --warn-border:rgba(166,74,48,.35); --warn-ink:#8a3d27; --team-hover:rgba(184,116,32,.08); }
 .sf-root *{box-sizing:border-box;}
 .sf-root{ background:var(--bg); color:var(--ink); font-family:'IBM Plex Sans',sans-serif; min-height:100vh; display:flex; }
 .sf-side{ width:56px; flex:0 0 56px; background:var(--side-bg); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; padding:18px 0; position:sticky; top:0; height:100vh; }
@@ -255,14 +255,14 @@ const styles = `
 .sf-task.done .sf-task-title{ text-decoration:line-through; }
 .sf-task.dragging{ opacity:.35; cursor:grabbing; }
 .sf-task.drop-before{ box-shadow:0 -2px 0 var(--accent); }
-.sf-col.drop-target{ background:var(--squad-hover); border-color:var(--accent); }
+.sf-col.drop-target{ background:var(--team-hover); border-color:var(--accent); }
 .sf-grip{ flex:0 0 auto; color:var(--ink-faint); font-size:12px; padding:2px 0; cursor:grab; user-select:none; line-height:1; letter-spacing:-1px; }
 .sf-grip:hover{ color:var(--ink-dim); }
 .sf-check{ flex:0 0 auto; width:18px; height:18px; border-radius:5px; border:1.5px solid var(--ink-faint); background:transparent; cursor:pointer; margin-top:2px; display:flex; align-items:center; justify-content:center; padding:0; }
 .sf-check.on{ background:var(--accent); border-color:var(--accent); color:var(--btn-ink); font-size:12px; font-weight:700; }
 .sf-task-body{ flex:1; min-width:0; }
 .sf-task-title{ font-size:14px; line-height:1.5; word-break:break-word; overflow-wrap:anywhere; white-space:pre-wrap; cursor:text; border-radius:4px; padding:1px 3px; margin:-1px -3px; }
-.sf-task-title:hover{ background:var(--squad-hover); }
+.sf-task-title:hover{ background:var(--team-hover); }
 .sf-task-title a{ color:var(--accent); text-decoration:none; border-bottom:1px dashed var(--accent); }
 .sf-task-title a:hover{ filter:brightness(1.15); }
 .sf-task-title code{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 4px; font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
@@ -271,10 +271,10 @@ const styles = `
 .sf-task-edit{ width:100%; background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:6px; padding:4px 7px; font-size:14px; font-family:inherit; outline:none; line-height:1.5; resize:none; min-height:28px; max-height:240px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; }
 .sf-meta{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:6px; }
 .sf-chip{ font-size:10.5px; padding:2px 7px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
-.sf-chip-squad{ color:var(--btn-ink); font-weight:500; cursor:pointer; border:0; padding:2px 7px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; }
-.sf-chip-squad:hover{ filter:brightness(1.1); }
-.sf-chip-squad-add{ background:transparent; border:1px dashed var(--line); color:var(--ink-faint); cursor:pointer; padding:1px 7px; font-size:10.5px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
-.sf-chip-squad-add:hover{ border-color:var(--accent); color:var(--accent); }
+.sf-chip-team{ color:var(--btn-ink); font-weight:500; cursor:pointer; border:0; padding:2px 7px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.02em; }
+.sf-chip-team:hover{ filter:brightness(1.1); }
+.sf-chip-team-add{ background:transparent; border:1px dashed var(--line); color:var(--ink-faint); cursor:pointer; padding:1px 7px; font-size:10.5px; border-radius:20px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
+.sf-chip-team-add:hover{ border-color:var(--accent); color:var(--accent); }
 .sf-chip-edit{ background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:20px; padding:2px 8px; font-size:10.5px; font-family:'IBM Plex Mono',monospace; outline:none; width:110px; letter-spacing:.02em; }
 .sf-chip-person{ background:var(--panel); border:1px solid var(--line); color:var(--ink-dim); }
 .sf-chip-date{ background:transparent; border:1px solid var(--line); color:var(--ink-faint); }
@@ -319,12 +319,12 @@ export default function App() {
   const [jiraLoadingId, setJiraLoadingId] = useState(null);
   const [draft, setDraft] = useState("");
   const [draftBucket, setDraftBucket] = useState("today");
-  const [draftSquad, setDraftSquad] = useState("");
+  const [draftTeam, setDraftTeam] = useState("");
   const [openMenu, setOpenMenu] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState("");
-  const [editingSquadId, setEditingSquadId] = useState(null);
-  const [editSquadDraft, setEditSquadDraft] = useState("");
+  const [editingTeamId, setEditingTeamId] = useState(null);
+  const [editTeamDraft, setEditTeamDraft] = useState("");
   // Notes: which task ids are currently expanded, which is being edited, and
   // the draft text. Expanded is a Set so several tasks can be open at once.
   const [expandedNotes, setExpandedNotes] = useState(() => new Set());
@@ -354,11 +354,11 @@ export default function App() {
   const [dropBeforeId, setDropBeforeId] = useState(null);
   const [dropBucket, setDropBucket] = useState(null);
 
-  // Filter state — search applies to the visible title text; squadFilter is a
-  // Set of squad names (empty = include all squads); hideDone collapses done
+  // Filter state — search applies to the visible title text; teamFilter is a
+  // Set of team names (empty = include all teams); hideDone collapses done
   // items out of the board entirely.
   const [searchTerm, setSearchTerm] = useState("");
-  const [squadFilter, setSquadFilter] = useState(new Set());
+  const [teamFilter, setTeamFilter] = useState(new Set());
   const [hideDone, setHideDone] = useState(false);
 
   // Command palette state. paletteOpen toggles the overlay; query and
@@ -373,30 +373,30 @@ export default function App() {
   const searchInputRef = React.useRef(null);
   const paletteInputRef = React.useRef(null);
 
-  const toggleSquadFilter = (name) => {
-    setSquadFilter((prev) => {
+  const toggleTeamFilter = (name) => {
+    setTeamFilter((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name); else next.add(name);
       return next;
     });
   };
-  const clearFilters = () => { setSearchTerm(""); setSquadFilter(new Set()); setHideDone(false); };
+  const clearFilters = () => { setSearchTerm(""); setTeamFilter(new Set()); setHideDone(false); };
 
   const trimmedSearch = searchTerm.trim().toLowerCase();
-  const filtersActive = !!trimmedSearch || squadFilter.size > 0 || hideDone;
+  const filtersActive = !!trimmedSearch || teamFilter.size > 0 || hideDone;
 
   const matchesFilters = useCallback((t) => {
     if (hideDone && t.done) return false;
-    if (squadFilter.size > 0) {
-      // Untagged tasks never match a positive squad filter.
-      if (!t.squad || !squadFilter.has(t.squad)) return false;
+    if (teamFilter.size > 0) {
+      // Untagged tasks never match a positive team filter.
+      if (!t.team || !teamFilter.has(t.team)) return false;
     }
     if (trimmedSearch) {
       const hay = ((t.title || "") + "\n" + (t.notes || "")).toLowerCase();
       if (!hay.includes(trimmedSearch)) return false;
     }
     return true;
-  }, [hideDone, squadFilter, trimmedSearch]);
+  }, [hideDone, teamFilter, trimmedSearch]);
   // filteredVisibleCount is defined further down, alongside activeTasks — it
   // depends on it, and JS const declarations don't hoist.
 
@@ -428,15 +428,15 @@ export default function App() {
     });
   };
 
-  const startSquadEdit = (t) => { setEditingSquadId(t.id); setEditSquadDraft(t.squad || ""); };
-  const cancelSquadEdit = () => { setEditingSquadId(null); setEditSquadDraft(""); };
-  const commitSquadEdit = () => {
-    if (editingSquadId) {
-      const v = editSquadDraft.trim();
-      update(editingSquadId, { squad: v || null });
+  const startTeamEdit = (t) => { setEditingTeamId(t.id); setEditTeamDraft(t.team || ""); };
+  const cancelTeamEdit = () => { setEditingTeamId(null); setEditTeamDraft(""); };
+  const commitTeamEdit = () => {
+    if (editingTeamId) {
+      const v = editTeamDraft.trim();
+      update(editingTeamId, { team: v || null });
     }
-    setEditingSquadId(null);
-    setEditSquadDraft("");
+    setEditingTeamId(null);
+    setEditTeamDraft("");
   };
 
   // ── Notes helpers ────────────────────────────────────────────────────────
@@ -572,19 +572,19 @@ export default function App() {
     return () => { cancelled = true; };
   }, [tasks, settings, loaded]);
 
-  const squads = useMemo(() => {
+  const teams = useMemo(() => {
     const set = new Set();
-    tasks.forEach((t) => t.squad && set.add(t.squad));
+    tasks.forEach((t) => t.team && set.add(t.team));
     return Array.from(set).sort();
   }, [tasks]);
 
-  const squadColor = useCallback(
+  const teamColor = useCallback(
     (name) => {
       if (!name) return "var(--ink-faint)";
-      const idx = squads.indexOf(name);
+      const idx = teams.indexOf(name);
       return PALETTE[(idx < 0 ? 0 : idx) % PALETTE.length];
     },
-    [squads]
+    [teams]
   );
 
   const addTask = () => {
@@ -595,7 +595,7 @@ export default function App() {
       id: uid(),
       title,
       bucket: draftBucket,
-      squad: draftSquad.trim() || null,
+      team: draftTeam.trim() || null,
       person: null,
       chaseDate: null,
       dueDate: null,
@@ -708,12 +708,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [paletteOpen, filtersActive, openPalette]);
 
-  // Cross-squad balance: open (not done, not archived) items per squad
+  // Cross-team balance: open (not done, not archived) items per team
   const balance = useMemo(() => {
     const counts = {};
     activeTasks.forEach((t) => {
       if (t.done) return;
-      const key = t.squad || "— untagged —";
+      const key = t.team || "— untagged —";
       counts[key] = (counts[key] || 0) + 1;
     });
     const rows = Object.entries(counts).map(([name, n]) => ({ name, n }));
@@ -766,10 +766,10 @@ export default function App() {
       setView("board");
       setTimeout(() => searchInputRef.current?.focus(), 0);
     });
-    squads.forEach((s) => {
-      addAction(`Filter by squad: ${s}`, "·", () => {
+    teams.forEach((s) => {
+      addAction(`Filter by team: ${s}`, "·", () => {
         setView("board");
-        setSquadFilter((prev) => {
+        setTeamFilter((prev) => {
           const next = new Set(prev);
           if (next.has(s)) next.delete(s); else next.add(s);
           return next;
@@ -805,7 +805,7 @@ export default function App() {
       matchedTasks.forEach(({ t, archived }) => {
         const bucketLabel = archived ? "archive" : (BUCKETS.find((b) => b.id === t.bucket)?.label || t.bucket);
         const parts = [bucketLabel];
-        if (t.squad) parts.push(t.squad);
+        if (t.team) parts.push(t.team);
         if (t.dueDate) parts.push(`due ${t.dueDate}`);
         items.push({
           kind: "task",
@@ -828,7 +828,7 @@ export default function App() {
     }
     return items;
   }, [
-    paletteQuery, activeTasks, archivedTasks, squads, settings.darkMode,
+    paletteQuery, activeTasks, archivedTasks, teams, settings.darkMode,
     hideDone, filtersActive, doneNotArchivedCount, matchesFilters, flashTask,
   ]);
 
@@ -870,7 +870,7 @@ export default function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `squadflow-${today}.json`;
+      a.download = `foreground-${today}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -903,7 +903,7 @@ export default function App() {
         }
         setIoStatus({ kind: "ok", msg: `Imported ${parsed.tasks.length} task${parsed.tasks.length === 1 ? "" : "s"}.` });
       } catch (e) {
-        setIoStatus({ kind: "err", msg: "Invalid file — expected SquadFlow JSON export." });
+        setIoStatus({ kind: "err", msg: "Invalid file — expected Foreground JSON export." });
       }
     };
     reader.onerror = () => setIoStatus({ kind: "err", msg: "Couldn't read file." });
@@ -918,7 +918,7 @@ export default function App() {
           autoFocus
           className="sf-palette-input"
           type="text"
-          placeholder="Find tasks, run actions… (try a squad name, a Jira key, or just type)"
+          placeholder="Find tasks, run actions… (try a team name, a Jira key, or just type)"
           value={paletteQuery}
           onChange={(e) => { setPaletteQuery(e.target.value); setPaletteIdx(0); }}
           onKeyDown={(e) => {
@@ -1020,7 +1020,7 @@ export default function App() {
     // Hero stats
     const todayCount = openTasks.filter((t) => t.bucket === "today").length;
     const todayOverCap = Math.max(0, todayCount - settings.todayCap);
-    const shippedSquads = new Set(shipped.map((t) => t.squad).filter(Boolean));
+    const shippedTeams = new Set(shipped.map((t) => t.team).filter(Boolean));
 
     const ageClass = (days, soft, hard) =>
       days >= hard ? "danger" : days >= soft ? "warn" : "";
@@ -1053,8 +1053,8 @@ export default function App() {
                 <div className="sf-rev-stat-num accent">{shipped.length}</div>
                 <div className="sf-rev-stat-label">shipped · last 7 days</div>
                 <div className="sf-rev-stat-hint">
-                  {shippedSquads.size > 0
-                    ? `across ${shippedSquads.size} squad${shippedSquads.size === 1 ? "" : "s"}`
+                  {shippedTeams.size > 0
+                    ? `across ${shippedTeams.size} team${shippedTeams.size === 1 ? "" : "s"}`
                     : shipped.length === 0
                       ? "nothing archived this week"
                       : "untagged"}
@@ -1111,7 +1111,7 @@ export default function App() {
                             dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
                           />
                           <div className="sf-rev-meta">
-                            from {bucketLabel(t.bucket)}{t.squad ? ` · ${t.squad}` : ""}
+                            from {bucketLabel(t.bucket)}{t.team ? ` · ${t.team}` : ""}
                           </div>
                         </div>
                       </div>
@@ -1140,7 +1140,7 @@ export default function App() {
                         dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
                       />
                       <div className="sf-rev-meta">
-                        {bucketLabel(t.bucket)}{t.squad ? ` · ${t.squad}` : ""}
+                        {bucketLabel(t.bucket)}{t.team ? ` · ${t.team}` : ""}
                       </div>
                     </div>
                     <div className={"sf-rev-age " + ageClass(days, soft, hard)}>
@@ -1165,7 +1165,7 @@ export default function App() {
                         dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
                       />
                       <div className="sf-rev-meta">
-                        Waiting On {t.person || "(someone)"}{t.squad ? ` · ${t.squad}` : ""}
+                        Waiting On {t.person || "(someone)"}{t.team ? ` · ${t.team}` : ""}
                       </div>
                     </div>
                     <div className="sf-rev-age danger">chase {t.chaseDate}</div>
@@ -1179,7 +1179,7 @@ export default function App() {
                         dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
                       />
                       <div className="sf-rev-meta">
-                        Week{t.squad ? ` · ${t.squad}` : ""}
+                        Week{t.team ? ` · ${t.team}` : ""}
                       </div>
                     </div>
                     <div className="sf-rev-age danger">due {t.dueDate}</div>
@@ -1261,9 +1261,9 @@ export default function App() {
                             />
                           )}
                           <div className="sf-arc-meta">
-                            {t.squad && (
-                              <span className="sf-chip sf-chip-squad" style={{ background: squadColor(t.squad) }}>
-                                {t.squad}
+                            {t.team && (
+                              <span className="sf-chip sf-chip-team" style={{ background: teamColor(t.team) }}>
+                                {t.team}
                               </span>
                             )}
                             <span className="sf-chip sf-chip-date">
@@ -1304,7 +1304,7 @@ export default function App() {
           <div className="sf-wrap">
             <header>
               <h1 className="sf-h1">Settings</h1>
-              <p className="sf-sub">Tune SquadFlow to fit how you work. Changes save automatically.</p>
+              <p className="sf-sub">Tune Foreground to fit how you work. Changes save automatically.</p>
             </header>
             <hr className="sf-rule" />
             <div className="sf-settings-card">
@@ -1351,7 +1351,7 @@ export default function App() {
                 <div>
                   <div className="sf-set-label">Show "Where your attention is going"</div>
                   <div className="sf-set-desc">
-                    The cross-squad balance bars under the buckets. Turn off if the visual
+                    The cross-team balance bars under the buckets. Turn off if the visual
                     nudge isn't useful for you right now.
                   </div>
                 </div>
@@ -1402,9 +1402,9 @@ export default function App() {
                   <div className="sf-set-label">Jira integration {jiraConfigured && <span style={{ color: "#7c9a6d", fontSize: 11, marginLeft: 6 }}>● connected</span>}</div>
                   <div className="sf-set-desc">
                     Paste a Jira link or key (like <span className="sf-mono">PROJ-123</span>) into a task title
-                    and SquadFlow will pull the summary and current status. Create a token at{" "}
+                    and Foreground will pull the summary and current status. Create a token at{" "}
                     <span className="sf-mono">id.atlassian.com/manage-profile/security/api-tokens</span>.
-                    SquadFlow only reads — it calls{" "}
+                    Foreground only reads — it calls{" "}
                     <span className="sf-mono">GET /rest/api/3/issue/{`{key}`}</span> and nothing else.
                     <br /><br />
                     <b>Two token types are supported.</b> Both share the same{" "}
@@ -1415,7 +1415,7 @@ export default function App() {
                     The token inherits your Jira permissions — you need <b>Browse Projects</b> on the projects
                     whose issues you want to enrich.<br />
                     • <b>Scoped API token</b> (scopes picked at creation) — leave email <b>blank</b>, fill in
-                    Cloud ID (instructions appear below the form). SquadFlow routes through{" "}
+                    Cloud ID (instructions appear below the form). Foreground routes through{" "}
                     <span className="sf-mono">api.atlassian.com/ex/jira/{`{cloudId}`}/…</span>. Required scopes:{" "}
                     <span className="sf-mono">read:jira-work</span> (or the narrower pair{" "}
                     <span className="sf-mono">read:issue:jira</span> + <span className="sf-mono">read:issue-meta:jira</span>).
@@ -1518,10 +1518,10 @@ export default function App() {
       <main className="sf-main">
       <div className="sf-wrap">
         <header>
-          <h1 className="sf-h1">SquadFlow</h1>
+          <h1 className="sf-h1">Foreground</h1>
           <p className="sf-sub">
             Capture everything, separate your action from what you're waiting on, and
-            keep one squad from quietly eating all your attention.
+            keep one team from quietly eating all your attention.
           </p>
         </header>
 
@@ -1532,7 +1532,7 @@ export default function App() {
           <textarea
             className="sf-input"
             rows={1}
-            placeholder="What needs doing? (e.g. Review Squad A's API design)"
+            placeholder="What needs doing? (e.g. review the API design draft)"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onInput={(e) => autoSize(e.currentTarget)}
@@ -1551,14 +1551,14 @@ export default function App() {
           />
           <input
             className="sf-sel"
-            list="sf-squads"
-            placeholder="Squad…"
-            value={draftSquad}
-            onChange={(e) => setDraftSquad(e.target.value)}
+            list="sf-teams"
+            placeholder="Team…"
+            value={draftTeam}
+            onChange={(e) => setDraftTeam(e.target.value)}
             style={{ flex: "0 1 130px" }}
           />
-          <datalist id="sf-squads">
-            {squads.map((s) => <option key={s} value={s} />)}
+          <datalist id="sf-teams">
+            {teams.map((s) => <option key={s} value={s} />)}
           </datalist>
           <select className="sf-sel" value={draftBucket} onChange={(e) => setDraftBucket(e.target.value)}>
             {BUCKETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
@@ -1581,16 +1581,16 @@ export default function App() {
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") setSearchTerm(""); }}
           />
-          {squads.length > 0 && (
+          {teams.length > 0 && (
             <div className="sf-filter-pills">
-              {squads.map((s) => {
-                const on = squadFilter.has(s);
+              {teams.map((s) => {
+                const on = teamFilter.has(s);
                 return (
                   <button
                     key={s}
                     className={"sf-filter-pill" + (on ? " active" : "")}
-                    style={on ? { background: squadColor(s) } : undefined}
-                    onClick={() => toggleSquadFilter(s)}
+                    style={on ? { background: teamColor(s) } : undefined}
+                    onClick={() => toggleTeamFilter(s)}
                   >{s}</button>
                 );
               })}
@@ -1691,7 +1691,7 @@ export default function App() {
                       }
                       key={t.id}
                       data-task-id={t.id}
-                      draggable={editingId !== t.id && editingSquadId !== t.id && editingNotesId !== t.id}
+                      draggable={editingId !== t.id && editingTeamId !== t.id && editingNotesId !== t.id}
                       onDragStart={(e) => {
                         setDragId(t.id);
                         e.dataTransfer.effectAllowed = "move";
@@ -1757,33 +1757,33 @@ export default function App() {
                           />
                         )}
                         <div className="sf-meta" onClick={(e) => e.stopPropagation()}>
-                          {editingSquadId === t.id ? (
+                          {editingTeamId === t.id ? (
                             <input
                               autoFocus
                               className="sf-chip-edit"
-                              list="sf-squads"
-                              placeholder="squad"
-                              value={editSquadDraft}
-                              onChange={(e) => setEditSquadDraft(e.target.value)}
-                              onBlur={commitSquadEdit}
+                              list="sf-teams"
+                              placeholder="team"
+                              value={editTeamDraft}
+                              onChange={(e) => setEditTeamDraft(e.target.value)}
+                              onBlur={commitTeamEdit}
                               onKeyDown={(e) => {
-                                if (e.key === "Enter") { e.preventDefault(); commitSquadEdit(); }
-                                else if (e.key === "Escape") { e.preventDefault(); cancelSquadEdit(); }
+                                if (e.key === "Enter") { e.preventDefault(); commitTeamEdit(); }
+                                else if (e.key === "Escape") { e.preventDefault(); cancelTeamEdit(); }
                               }}
                             />
-                          ) : t.squad ? (
+                          ) : t.team ? (
                             <button
-                              className="sf-chip sf-chip-squad"
-                              style={{ background: squadColor(t.squad) }}
-                              onClick={() => startSquadEdit(t)}
-                              title="Click to edit squad"
-                            >{t.squad}</button>
+                              className="sf-chip sf-chip-team"
+                              style={{ background: teamColor(t.team) }}
+                              onClick={() => startTeamEdit(t)}
+                              title="Click to edit team"
+                            >{t.team}</button>
                           ) : (
                             <button
-                              className="sf-chip-squad-add"
-                              onClick={() => startSquadEdit(t)}
-                              title="Tag with a squad"
-                            >+ squad</button>
+                              className="sf-chip-team-add"
+                              onClick={() => startTeamEdit(t)}
+                              title="Tag with a team"
+                            >+ team</button>
                           )}
                           {t.jira && t.jira.key && (
                             <a
@@ -1945,12 +1945,12 @@ export default function App() {
           })}
         </div>
 
-        {/* Cross-squad balance */}
+        {/* Cross-team balance */}
         {settings.showBalance && balance.length > 0 && (
           <div className="sf-balance">
             <div className="sf-balance-title">Where your attention is going</div>
             <div className="sf-balance-sub">
-              Open items per squad. If one bar dwarfs the others, ask whether that's
+              Open items per team. If one bar dwarfs the others, ask whether that's
               the highest-leverage place for you — or just the loudest.
             </div>
             {balance.map((row) => (
@@ -1961,7 +1961,7 @@ export default function App() {
                     className="sf-bar-fill"
                     style={{
                       width: `${(row.n / maxBalance) * 100}%`,
-                      background: row.name.startsWith("—") ? "var(--ink-faint)" : squadColor(row.name),
+                      background: row.name.startsWith("—") ? "var(--ink-faint)" : teamColor(row.name),
                     }}
                   />
                 </div>
