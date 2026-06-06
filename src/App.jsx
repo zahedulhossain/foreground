@@ -172,6 +172,19 @@ const styles = `
 .sf-filter-count{ font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; margin-left:auto; }
 .sf-task mark{ background:var(--accent); color:var(--btn-ink); padding:0 2px; border-radius:2px; }
 
+.sf-notes{ margin-top:8px; padding:8px 10px; border-left:2px solid var(--line); background:var(--bg); border-radius:0 6px 6px 0; }
+.sf-notes:hover{ border-left-color:var(--accent); }
+.sf-notes-rendered{ font-size:12.5px; line-height:1.55; color:var(--ink-dim); white-space:pre-wrap; word-break:break-word; overflow-wrap:anywhere; cursor:text; }
+.sf-notes-rendered a{ color:var(--accent); text-decoration:none; border-bottom:1px dashed var(--accent); }
+.sf-notes-rendered code{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 4px; font-family:'IBM Plex Mono',monospace; font-size:12px; }
+.sf-notes-rendered strong{ font-weight:600; color:var(--ink); }
+.sf-notes-rendered em{ font-style:italic; }
+.sf-notes-rendered mark{ background:var(--accent); color:var(--btn-ink); padding:0 2px; border-radius:2px; }
+.sf-notes-edit{ width:100%; background:var(--panel); border:1px solid var(--accent); color:var(--ink); border-radius:6px; padding:6px 8px; font-size:12.5px; font-family:inherit; outline:none; line-height:1.55; resize:none; min-height:60px; max-height:320px; overflow-y:auto; white-space:pre-wrap; }
+.sf-notes-hint{ font-size:10.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; margin-top:4px; }
+.sf-notes-empty-hint{ color:var(--ink-faint); font-style:italic; font-size:12.5px; cursor:text; }
+.sf-mini.has-notes{ color:var(--accent); }
+
 @keyframes sf-flash { 0%{box-shadow:0 0 0 0 var(--accent);} 50%{box-shadow:0 0 0 3px var(--accent);} 100%{box-shadow:0 0 0 0 transparent;} }
 .sf-task.flash{ animation: sf-flash 1.4s ease-out; }
 
@@ -289,6 +302,11 @@ export default function App() {
   const [editDraft, setEditDraft] = useState("");
   const [editingSquadId, setEditingSquadId] = useState(null);
   const [editSquadDraft, setEditSquadDraft] = useState("");
+  // Notes: which task ids are currently expanded, which is being edited, and
+  // the draft text. Expanded is a Set so several tasks can be open at once.
+  const [expandedNotes, setExpandedNotes] = useState(() => new Set());
+  const [editingNotesId, setEditingNotesId] = useState(null);
+  const [editNotesDraft, setEditNotesDraft] = useState("");
 
   const startEdit = (t) => { setEditingId(t.id); setEditDraft(t.title); };
   const cancelEdit = () => { setEditingId(null); setEditDraft(""); };
@@ -351,7 +369,7 @@ export default function App() {
       if (!t.squad || !squadFilter.has(t.squad)) return false;
     }
     if (trimmedSearch) {
-      const hay = (t.title || "").toLowerCase();
+      const hay = ((t.title || "") + "\n" + (t.notes || "")).toLowerCase();
       if (!hay.includes(trimmedSearch)) return false;
     }
     return true;
@@ -386,6 +404,32 @@ export default function App() {
     }
     setEditingSquadId(null);
     setEditSquadDraft("");
+  };
+
+  // ── Notes helpers ────────────────────────────────────────────────────────
+  const toggleNotesExpanded = (id) => {
+    setExpandedNotes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const startNotesEdit = (t) => {
+    setEditingNotesId(t.id);
+    setEditNotesDraft(t.notes || "");
+    setExpandedNotes((prev) => new Set(prev).add(t.id));
+  };
+  const cancelNotesEdit = () => { setEditingNotesId(null); setEditNotesDraft(""); };
+  const commitNotesEdit = () => {
+    if (editingNotesId) {
+      // Don't trim — notes may have intentional leading/trailing whitespace
+      // (e.g. an indented code block). But empty-after-trim ⇒ null, so we
+      // don't bloat the data with hollow notes blocks.
+      const v = editNotesDraft;
+      update(editingNotesId, { notes: v.trim() ? v : null });
+    }
+    setEditingNotesId(null);
+    setEditNotesDraft("");
   };
 
   // Load once
@@ -520,7 +564,9 @@ export default function App() {
       squad: draftSquad.trim() || null,
       person: null,
       chaseDate: null,
+      dueDate: null,
       done: false,
+      notes: null,
       createdAt: Date.now(),
     };
     setTasks((prev) => [t, ...prev]);
@@ -707,7 +753,9 @@ export default function App() {
       ...archivedTasks.map((t) => ({ t, archived: true })),
     ];
     const matchedTasks = (q
-      ? allTaskCandidates.filter(({ t }) => (t.title || "").toLowerCase().includes(q))
+      ? allTaskCandidates.filter(({ t }) =>
+          ((t.title || "") + "\n" + (t.notes || "")).toLowerCase().includes(q)
+        )
       : allTaskCandidates
     ).slice(0, 30); // cap to keep the list scannable
 
@@ -720,12 +768,15 @@ export default function App() {
       items.push({ kind: "group", label: "Tasks" });
       matchedTasks.forEach(({ t, archived }) => {
         const bucketLabel = archived ? "archive" : (BUCKETS.find((b) => b.id === t.bucket)?.label || t.bucket);
+        const parts = [bucketLabel];
+        if (t.squad) parts.push(t.squad);
+        if (t.dueDate) parts.push(`due ${t.dueDate}`);
         items.push({
           kind: "task",
           task: t,
           archived,
           label: t.title,
-          hint: t.squad ? `${bucketLabel} · ${t.squad}` : bucketLabel,
+          hint: parts.join(" · "),
           run: () => {
             if (archived) {
               setView("archive");
@@ -744,6 +795,19 @@ export default function App() {
     paletteQuery, activeTasks, archivedTasks, squads, settings.darkMode,
     hideDone, filtersActive, doneNotArchivedCount, matchesFilters, flashTask,
   ]);
+
+  // When a search hits a task only via its notes, auto-expand the notes block
+  // so the user can see why it matched. Compute the set once per render.
+  const notesAutoExpanded = useMemo(() => {
+    if (!trimmedSearch) return new Set();
+    const s = new Set();
+    activeTasks.forEach((t) => {
+      const titleHit = (t.title || "").toLowerCase().includes(trimmedSearch);
+      const notesHit = (t.notes || "").toLowerCase().includes(trimmedSearch);
+      if (notesHit && !titleHit) s.add(t.id);
+    });
+    return s;
+  }, [activeTasks, trimmedSearch]);
 
   // Indices of *selectable* items (excluding group headers)
   const selectableIdxs = useMemo(
@@ -940,6 +1004,13 @@ export default function App() {
                             className="sf-arc-title"
                             dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
                           />
+                          {t.notes && (
+                            <div
+                              className="sf-notes-rendered"
+                              style={{ marginTop: 6 }}
+                              dangerouslySetInnerHTML={{ __html: renderTitle(t.notes) }}
+                            />
+                          )}
                           <div className="sf-arc-meta">
                             {t.squad && (
                               <span className="sf-chip sf-chip-squad" style={{ background: squadColor(t.squad) }}>
@@ -1358,6 +1429,7 @@ export default function App() {
 
                 {items.map((t) => {
                   const due = t.chaseDate && t.chaseDate <= today;
+                  const overdue = t.dueDate && t.dueDate <= today && !t.done;
                   const isDragging = dragId === t.id;
                   const showDropLine = dropBeforeId === t.id && dragId && dragId !== t.id;
                   return (
@@ -1370,7 +1442,7 @@ export default function App() {
                       }
                       key={t.id}
                       data-task-id={t.id}
-                      draggable={editingId !== t.id && editingSquadId !== t.id}
+                      draggable={editingId !== t.id && editingSquadId !== t.id && editingNotesId !== t.id}
                       onDragStart={(e) => {
                         setDragId(t.id);
                         e.dataTransfer.effectAllowed = "move";
@@ -1513,10 +1585,77 @@ export default function App() {
                               />
                             </>
                           )}
+                          {bucket.id === "week" && (
+                            <input
+                              type="date"
+                              className={"sf-chip sf-chip-date" + (overdue ? " due" : "")}
+                              value={t.dueDate || ""}
+                              onChange={(e) =>
+                                update(t.id, { dueDate: e.target.value || null })
+                              }
+                              title={t.dueDate ? `Due ${t.dueDate}` : "Set a due date"}
+                            />
+                          )}
                         </div>
+
+                        {(editingNotesId === t.id ||
+                          (t.notes && (expandedNotes.has(t.id) || notesAutoExpanded.has(t.id)))) && (
+                          <div className="sf-notes" onClick={(e) => e.stopPropagation()}>
+                            {editingNotesId === t.id ? (
+                              <>
+                                <textarea
+                                  autoFocus
+                                  className="sf-notes-edit"
+                                  value={editNotesDraft}
+                                  onChange={(e) => setEditNotesDraft(e.target.value)}
+                                  onInput={(e) => autoSize(e.currentTarget)}
+                                  ref={(el) => { if (el && editingNotesId === t.id) autoSize(el); }}
+                                  onBlur={commitNotesEdit}
+                                  onKeyDown={(e) => {
+                                    // Notes are multi-line by design — plain Enter inserts a
+                                    // newline; Cmd/Ctrl+Enter saves; Esc cancels.
+                                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                      e.preventDefault();
+                                      commitNotesEdit();
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      cancelNotesEdit();
+                                    }
+                                  }}
+                                  placeholder="Notes — markdown supported"
+                                />
+                                <div className="sf-notes-hint">
+                                  <b>Cmd/Ctrl+Enter</b> to save · <b>Esc</b> to cancel
+                                </div>
+                              </>
+                            ) : (
+                              <div
+                                className="sf-notes-rendered"
+                                onClick={(e) => {
+                                  if (e.target.tagName === "A") return;
+                                  startNotesEdit(t);
+                                }}
+                                title="Click to edit"
+                                dangerouslySetInnerHTML={{ __html: renderTitle(t.notes || "", trimmedSearch) }}
+                              />
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div className="sf-actions">
+                        <button
+                          className={"sf-mini" + (t.notes ? " has-notes" : "")}
+                          onClick={() => {
+                            if (t.notes) toggleNotesExpanded(t.id);
+                            else startNotesEdit(t);
+                          }}
+                          title={t.notes ? "Toggle notes" : "Add notes"}
+                        >
+                          {t.notes
+                            ? (expandedNotes.has(t.id) || notesAutoExpanded.has(t.id) ? "notes ▾" : "notes ▸")
+                            : "+ notes"}
+                        </button>
                         {t.done && (
                           <button
                             className="sf-mini"
