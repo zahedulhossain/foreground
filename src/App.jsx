@@ -122,6 +122,29 @@ const styles = `
 .sf-set-status.err{ color:var(--danger); }
 
 .sf-archive-empty{ color:var(--ink-faint); font-size:13px; font-style:italic; padding:32px 0; text-align:center; }
+
+.sf-rev-stats{ display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-top:8px; }
+@media(max-width:760px){ .sf-rev-stats{ grid-template-columns:repeat(2, 1fr); } }
+.sf-rev-stat{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+.sf-rev-stat-num{ font-family:'Fraunces',serif; font-weight:600; font-size:28px; letter-spacing:-0.02em; line-height:1; color:var(--ink); }
+.sf-rev-stat-num.danger{ color:var(--danger); }
+.sf-rev-stat-num.accent{ color:var(--accent); }
+.sf-rev-stat-label{ font-size:11.5px; color:var(--ink-faint); margin-top:6px; font-family:'IBM Plex Mono',monospace; letter-spacing:.02em; }
+.sf-rev-stat-hint{ font-size:11px; color:var(--ink-faint); margin-top:8px; line-height:1.4; }
+
+.sf-rev-section{ margin-top:28px; }
+.sf-rev-title{ font-family:'Fraunces',serif; font-weight:600; font-size:18px; letter-spacing:-0.01em; }
+.sf-rev-sub{ font-size:11.5px; color:var(--ink-faint); margin-top:2px; margin-bottom:12px; }
+.sf-rev-row{ display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:8px; cursor:pointer; }
+.sf-rev-row:hover{ background:var(--panel); }
+.sf-rev-row .sf-rev-body{ flex:1; min-width:0; }
+.sf-rev-row .sf-rev-task-title{ font-size:13.5px; line-height:1.4; word-break:break-word; }
+.sf-rev-row .sf-rev-meta{ font-size:11px; color:var(--ink-faint); margin-top:4px; font-family:'IBM Plex Mono',monospace; }
+.sf-rev-row .sf-rev-age{ flex:0 0 auto; font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; padding-top:2px; min-width:64px; text-align:right; }
+.sf-rev-row .sf-rev-age.warn{ color:var(--warn-ink); }
+.sf-rev-row .sf-rev-age.danger{ color:var(--danger); }
+.sf-rev-day{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.08em; margin:12px 0 4px; }
+.sf-rev-empty{ font-size:12.5px; color:var(--ink-faint); font-style:italic; padding:6px 10px; }
 .sf-arc-group{ margin-top:20px; }
 .sf-arc-date{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
 .sf-arc-item{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; }
@@ -381,7 +404,17 @@ export default function App() {
     setTasks((prev) => {
       const idx = prev.findIndex((t) => t.id === id);
       if (idx < 0) return prev;
-      const moved = { ...prev[idx], bucket: targetBucket };
+      const current = prev[idx];
+      // Only reset the "in this bucket since" timestamp when the bucket
+      // actually changes — pure reordering within the same column doesn't
+      // count as "moving."
+      const moved = {
+        ...current,
+        bucket: targetBucket,
+        bucketChangedAt: current.bucket === targetBucket
+          ? (current.bucketChangedAt || current.createdAt || Date.now())
+          : Date.now(),
+      };
       const without = prev.filter((t) => t.id !== id);
       if (beforeId && beforeId !== id) {
         const targetIdx = without.findIndex((t) => t.id === beforeId);
@@ -557,6 +590,7 @@ export default function App() {
   const addTask = () => {
     const title = draft.trim();
     if (!title) return;
+    const now = Date.now();
     const t = {
       id: uid(),
       title,
@@ -567,7 +601,8 @@ export default function App() {
       dueDate: null,
       done: false,
       notes: null,
-      createdAt: Date.now(),
+      createdAt: now,
+      bucketChangedAt: now,
     };
     setTasks((prev) => [t, ...prev]);
     setDraft("");
@@ -580,7 +615,7 @@ export default function App() {
   const remove = (id) => setTasks((prev) => prev.filter((t) => t.id !== id));
 
   const archive = (id) => update(id, { done: true, archivedAt: Date.now() });
-  const restore = (id) => update(id, { archivedAt: null, done: false });
+  const restore = (id) => update(id, { archivedAt: null, done: false, bucketChangedAt: Date.now() });
   const archiveAllDone = () => {
     const now = Date.now();
     setTasks((prev) => prev.map((t) =>
@@ -703,6 +738,7 @@ export default function App() {
     };
     addAction("Go to Board", "·", () => setView("board"), "dashboard home");
     addAction("Go to Archive", "·", () => setView("archive"), "completed done");
+    addAction("Go to Review", "·", () => setView("review"), "weekly summary stats shipped");
     addAction("Go to Settings", "·", () => setView("settings"), "config preferences");
     addAction(
       settings.darkMode ? "Switch to light mode" : "Switch to dark mode",
@@ -940,6 +976,219 @@ export default function App() {
         {palette}
         <Sidebar view={view} setView={setView} />
         <main className="sf-main"><div className="sf-wrap"><p className="sf-empty">Loading your board…</p></div></main>
+      </div>
+    );
+  }
+
+  if (view === "review") {
+    // Build the data the review needs. All computations are local to this
+    // view — none of it persists.
+    const nowMs = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startOf7d = nowMs - 7 * dayMs;
+    const ageInDays = (t) => Math.floor((nowMs - (t.bucketChangedAt || t.createdAt || nowMs)) / dayMs);
+
+    // Shipped this past 7 days = archived in the last 7 days. Grouped by day.
+    const shipped = archivedTasks.filter((t) => t.archivedAt && t.archivedAt >= startOf7d);
+    const shippedByDay = [];
+    {
+      let lastKey = null;
+      shipped.forEach((t) => {
+        const k = new Date(t.archivedAt).toISOString().slice(0, 10);
+        if (k !== lastKey) { shippedByDay.push({ day: k, items: [] }); lastKey = k; }
+        shippedByDay[shippedByDay.length - 1].items.push(t);
+      });
+    }
+
+    // Open work = active and not done. Stuck longest = sorted by bucketChangedAt asc.
+    const openTasks = activeTasks.filter((t) => !t.done);
+    const stuckLongest = [...openTasks]
+      .sort((a, b) =>
+        (a.bucketChangedAt || a.createdAt || 0) - (b.bucketChangedAt || b.createdAt || 0)
+      )
+      .slice(0, 6);
+
+    // Waiting On chase-due + Week overdue.
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const chaseDue = openTasks.filter(
+      (t) => t.bucket === "waiting" && t.chaseDate && t.chaseDate <= todayIso
+    );
+    const weekOverdue = openTasks.filter(
+      (t) => t.bucket === "week" && t.dueDate && t.dueDate <= todayIso
+    );
+
+    // Hero stats
+    const todayCount = openTasks.filter((t) => t.bucket === "today").length;
+    const todayOverCap = Math.max(0, todayCount - settings.todayCap);
+    const shippedSquads = new Set(shipped.map((t) => t.squad).filter(Boolean));
+
+    const ageClass = (days, soft, hard) =>
+      days >= hard ? "danger" : days >= soft ? "warn" : "";
+    const bucketLabel = (id) => BUCKETS.find((b) => b.id === id)?.label || id;
+
+    const jumpTo = (t, archived) => {
+      if (archived) setView("archive");
+      else setView("board");
+      setTimeout(() => flashTask(t.id), 30);
+    };
+
+    return (
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+        <style>{styles}</style>
+        {palette}
+        <Sidebar view={view} setView={setView} />
+        <main className="sf-main">
+          <div className="sf-wrap">
+            <header>
+              <h1 className="sf-h1">Review</h1>
+              <p className="sf-sub">
+                What you shipped, what's drifting, what's about to block you.
+                Click any row to jump to it.
+              </p>
+            </header>
+            <hr className="sf-rule" />
+
+            <div className="sf-rev-stats">
+              <div className="sf-rev-stat">
+                <div className="sf-rev-stat-num accent">{shipped.length}</div>
+                <div className="sf-rev-stat-label">shipped · last 7 days</div>
+                <div className="sf-rev-stat-hint">
+                  {shippedSquads.size > 0
+                    ? `across ${shippedSquads.size} squad${shippedSquads.size === 1 ? "" : "s"}`
+                    : shipped.length === 0
+                      ? "nothing archived this week"
+                      : "untagged"}
+                </div>
+              </div>
+              <div className="sf-rev-stat">
+                <div className={"sf-rev-stat-num" + (todayOverCap > 0 ? " danger" : "")}>
+                  {todayCount}
+                </div>
+                <div className="sf-rev-stat-label">open in Today</div>
+                <div className="sf-rev-stat-hint">
+                  {todayOverCap > 0
+                    ? `${todayOverCap} over your cap of ${settings.todayCap}`
+                    : `cap ${settings.todayCap} — you're on it`}
+                </div>
+              </div>
+              <div className="sf-rev-stat">
+                <div className={"sf-rev-stat-num" + (chaseDue.length > 0 ? " danger" : "")}>
+                  {chaseDue.length}
+                </div>
+                <div className="sf-rev-stat-label">waiting · chase due</div>
+                <div className="sf-rev-stat-hint">
+                  {chaseDue.length === 0 ? "nothing past its chase date" : "ping them today"}
+                </div>
+              </div>
+              <div className="sf-rev-stat">
+                <div className={"sf-rev-stat-num" + (weekOverdue.length > 0 ? " danger" : "")}>
+                  {weekOverdue.length}
+                </div>
+                <div className="sf-rev-stat-label">week · overdue</div>
+                <div className="sf-rev-stat-hint">
+                  {weekOverdue.length === 0 ? "all Week dates are future" : "consider pulling into Today"}
+                </div>
+              </div>
+            </div>
+
+            <div className="sf-rev-section">
+              <div className="sf-rev-title">What you shipped this week</div>
+              <div className="sf-rev-sub">Archived in the last 7 days, newest first.</div>
+              {shipped.length === 0 ? (
+                <div className="sf-rev-empty">
+                  Nothing archived this past week — either it was a quiet week,
+                  or you've got done items waiting in the footer's "Archive done" button.
+                </div>
+              ) : (
+                shippedByDay.map((g) => (
+                  <div key={g.day}>
+                    <div className="sf-rev-day">{g.day}</div>
+                    {g.items.map((t) => (
+                      <div className="sf-rev-row" key={t.id} onClick={() => jumpTo(t, true)}>
+                        <div className="sf-rev-body">
+                          <div
+                            className="sf-rev-task-title"
+                            dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
+                          />
+                          <div className="sf-rev-meta">
+                            from {bucketLabel(t.bucket)}{t.squad ? ` · ${t.squad}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="sf-rev-section">
+              <div className="sf-rev-title">Sitting the longest</div>
+              <div className="sf-rev-sub">
+                Open tasks that haven't moved buckets recently — review and either commit, reschedule, or let go.
+              </div>
+              {stuckLongest.length === 0 ? (
+                <div className="sf-rev-empty">No open work — clean board.</div>
+              ) : stuckLongest.map((t) => {
+                const days = ageInDays(t);
+                const soft = t.bucket === "today" ? 3 : t.bucket === "waiting" ? 7 : 14;
+                const hard = t.bucket === "today" ? 7 : t.bucket === "waiting" ? 14 : 30;
+                return (
+                  <div className="sf-rev-row" key={t.id} onClick={() => jumpTo(t, false)}>
+                    <div className="sf-rev-body">
+                      <div
+                        className="sf-rev-task-title"
+                        dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
+                      />
+                      <div className="sf-rev-meta">
+                        {bucketLabel(t.bucket)}{t.squad ? ` · ${t.squad}` : ""}
+                      </div>
+                    </div>
+                    <div className={"sf-rev-age " + ageClass(days, soft, hard)}>
+                      {days === 0 ? "today" : `${days}d`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {(chaseDue.length > 0 || weekOverdue.length > 0) && (
+              <div className="sf-rev-section">
+                <div className="sf-rev-title">About to block you</div>
+                <div className="sf-rev-sub">
+                  Waiting On items past their chase date, and Week items past their due date.
+                </div>
+                {chaseDue.map((t) => (
+                  <div className="sf-rev-row" key={`c-${t.id}`} onClick={() => jumpTo(t, false)}>
+                    <div className="sf-rev-body">
+                      <div
+                        className="sf-rev-task-title"
+                        dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
+                      />
+                      <div className="sf-rev-meta">
+                        Waiting On {t.person || "(someone)"}{t.squad ? ` · ${t.squad}` : ""}
+                      </div>
+                    </div>
+                    <div className="sf-rev-age danger">chase {t.chaseDate}</div>
+                  </div>
+                ))}
+                {weekOverdue.map((t) => (
+                  <div className="sf-rev-row" key={`w-${t.id}`} onClick={() => jumpTo(t, false)}>
+                    <div className="sf-rev-body">
+                      <div
+                        className="sf-rev-task-title"
+                        dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }}
+                      />
+                      <div className="sf-rev-meta">
+                        Week{t.squad ? ` · ${t.squad}` : ""}
+                      </div>
+                    </div>
+                    <div className="sf-rev-age danger">due {t.dueDate}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
       </div>
     );
   }
@@ -1673,7 +1922,7 @@ export default function App() {
                                 <button
                                   key={b.id}
                                   className="sf-move-item"
-                                  onClick={() => { update(t.id, { bucket: b.id }); setOpenMenu(null); }}
+                                  onClick={() => { update(t.id, { bucket: b.id, bucketChangedAt: Date.now() }); setOpenMenu(null); }}
                                 >→ {b.label}</button>
                               ))}
                             </div>
@@ -1780,6 +2029,17 @@ function Sidebar({ view, setView }) {
           <rect x="3" y="4" width="18" height="4" rx="1" />
           <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
           <path d="M10 12h4" />
+        </svg>
+      </button>
+      <button
+        className={"sf-nav" + (view === "review" ? " active" : "")}
+        onClick={() => setView("review")}
+        title="Review"
+        aria-label="Review"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 3v18h18" />
+          <path d="M7 14l4-4 3 3 5-6" />
         </svg>
       </button>
       <div className="sf-side-spacer" />
