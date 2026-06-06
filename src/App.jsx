@@ -171,6 +171,26 @@ const styles = `
 .sf-filter-clear:hover{ color:var(--danger); }
 .sf-filter-count{ font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; margin-left:auto; }
 .sf-task mark{ background:var(--accent); color:var(--btn-ink); padding:0 2px; border-radius:2px; }
+
+@keyframes sf-flash { 0%{box-shadow:0 0 0 0 var(--accent);} 50%{box-shadow:0 0 0 3px var(--accent);} 100%{box-shadow:0 0 0 0 transparent;} }
+.sf-task.flash{ animation: sf-flash 1.4s ease-out; }
+
+.sf-palette-backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100; display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
+.sf-palette{ width:min(640px, 92vw); background:var(--panel); border:1px solid var(--line); border-radius:14px; box-shadow:0 24px 64px rgba(0,0,0,.45); overflow:hidden; display:flex; flex-direction:column; max-height:70vh; }
+.sf-palette-input{ background:transparent; border:0; border-bottom:1px solid var(--line); color:var(--ink); padding:16px 18px; font-size:15px; font-family:inherit; outline:none; }
+.sf-palette-input::placeholder{ color:var(--ink-faint); }
+.sf-palette-list{ overflow-y:auto; flex:1; padding:6px; }
+.sf-palette-group{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.08em; padding:10px 12px 6px; }
+.sf-palette-item{ display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; cursor:pointer; color:var(--ink); }
+.sf-palette-item.selected{ background:var(--panel-2); }
+.sf-palette-item .sf-pal-icon{ width:18px; flex:0 0 auto; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; font-size:11px; text-align:center; }
+.sf-palette-item .sf-pal-body{ flex:1; min-width:0; }
+.sf-palette-item .sf-pal-label{ font-size:13.5px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.sf-palette-item .sf-pal-hint{ font-size:11px; color:var(--ink-faint); margin-top:2px; font-family:'IBM Plex Mono',monospace; }
+.sf-palette-item .sf-pal-meta{ flex:0 0 auto; font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; }
+.sf-palette-empty{ color:var(--ink-faint); font-size:13px; padding:24px; text-align:center; font-style:italic; }
+.sf-palette-foot{ border-top:1px solid var(--line); padding:8px 14px; display:flex; gap:14px; font-size:10.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; }
+.sf-palette-foot kbd{ background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-family:inherit; color:var(--ink-dim); }
 .sf-add-hint b{ color:var(--ink-dim); font-weight:500; }
 .sf-input{ flex:1 1 260px; min-width:0; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit; outline:none; resize:none; line-height:1.5; min-height:42px; max-height:240px; overflow-y:auto; }
 .sf-input:focus{ border-color:var(--accent); }
@@ -299,6 +319,18 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [squadFilter, setSquadFilter] = useState(new Set());
   const [hideDone, setHideDone] = useState(false);
+
+  // Command palette state. paletteOpen toggles the overlay; query and
+  // selectedIdx drive its list. selectedIdx is reset whenever the list shape
+  // changes (query, view, or open/close).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteIdx, setPaletteIdx] = useState(0);
+  const [flashTaskId, setFlashTaskId] = useState(null);
+
+  const addInputRef = React.useRef(null);
+  const searchInputRef = React.useRef(null);
+  const paletteInputRef = React.useRef(null);
 
   const toggleSquadFilter = (name) => {
     setSquadFilter((prev) => {
@@ -521,6 +553,80 @@ export default function App() {
     [activeTasks, matchesFilters]
   );
 
+  const openPalette = useCallback((preset = "") => {
+    setPaletteQuery(preset);
+    setPaletteIdx(0);
+    setPaletteOpen(true);
+  }, []);
+
+  // Briefly highlight a task and scroll it into view — used when the palette
+  // jumps to a result so the user's eye can find it.
+  const flashTask = useCallback((id) => {
+    setFlashTaskId(id);
+    // Wait a frame so the row is in the DOM if we just switched views.
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-task-id="${id}"]`);
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setTimeout(() => setFlashTaskId(null), 1400);
+  }, []);
+
+  // Global shortcuts. Skip most when typing into an input/textarea — except
+  // Cmd/Ctrl+K (always available) and Esc (closes things).
+  useEffect(() => {
+    function onKey(e) {
+      const t = e.target;
+      const inForm =
+        t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+
+      // Cmd/Ctrl+K — open palette from anywhere
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        if (paletteOpen) setPaletteOpen(false);
+        else openPalette("");
+        return;
+      }
+
+      // Esc — close palette, blur input, or clear filters
+      if (e.key === "Escape") {
+        if (paletteOpen) { setPaletteOpen(false); return; }
+        if (inForm) { t.blur(); return; }
+        if (filtersActive) { clearFilters(); return; }
+        return;
+      }
+
+      if (paletteOpen) return; // palette has its own keydowns
+
+      // The rest only fire when not in a text field
+      if (inForm) return;
+
+      if (e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        setView("board");
+        // Wait a tick if we had to switch view
+        setTimeout(() => addInputRef.current?.focus(), 0);
+        return;
+      }
+      if (e.key === "?") {
+        e.preventDefault();
+        openPalette("");
+        return;
+      }
+      if (e.key >= "1" && e.key <= "4") {
+        const idx = parseInt(e.key, 10) - 1;
+        if (BUCKETS[idx]) setDraftBucket(BUCKETS[idx].id);
+        return;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paletteOpen, filtersActive, openPalette]);
+
   // Cross-squad balance: open (not done, not archived) items per squad
   const balance = useMemo(() => {
     const counts = {};
@@ -536,6 +642,126 @@ export default function App() {
   const maxBalance = Math.max(1, ...balance.map((r) => r.n));
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // ── Command palette items ────────────────────────────────────────────────
+  // Items are a unified list of "things you can do" — built lazily based on
+  // the current query. Tasks fuzzy-match against title; actions match against
+  // their label and a couple of keywords.
+  const paletteItems = useMemo(() => {
+    const q = paletteQuery.trim().toLowerCase();
+
+    // Actions — verbs the user can run from anywhere
+    const actions = [];
+    const addAction = (label, hint, run, keywords = "") => {
+      actions.push({ kind: "action", label, hint, run, keywords: (keywords + " " + label).toLowerCase() });
+    };
+    addAction("Go to Board", "·", () => setView("board"), "dashboard home");
+    addAction("Go to Archive", "·", () => setView("archive"), "completed done");
+    addAction("Go to Settings", "·", () => setView("settings"), "config preferences");
+    addAction(
+      settings.darkMode ? "Switch to light mode" : "Switch to dark mode",
+      "·",
+      () => setSettings((s) => ({ ...s, darkMode: !s.darkMode })),
+      "theme dark light"
+    );
+    addAction(
+      hideDone ? "Show done tasks" : "Hide done tasks",
+      "·",
+      () => setHideDone((v) => !v),
+      "filter completed"
+    );
+    if (filtersActive) {
+      addAction("Clear all filters", "·", clearFilters, "reset");
+    }
+    if (doneNotArchivedCount > 0) {
+      addAction(`Archive done (${doneNotArchivedCount})`, "·", archiveAllDone, "bulk");
+    }
+    addAction("Focus new-task input", "n", () => {
+      setView("board");
+      setTimeout(() => addInputRef.current?.focus(), 0);
+    }, "add create");
+    addAction("Focus search", "/", () => {
+      setView("board");
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    });
+    squads.forEach((s) => {
+      addAction(`Filter by squad: ${s}`, "·", () => {
+        setView("board");
+        setSquadFilter((prev) => {
+          const next = new Set(prev);
+          if (next.has(s)) next.delete(s); else next.add(s);
+          return next;
+        });
+      }, "team");
+    });
+
+    // Filter actions to the query
+    const matchedActions = q
+      ? actions.filter((a) => a.keywords.includes(q))
+      : actions;
+
+    // Tasks — match against the raw title (case-insensitive). Include archived
+    // too so the palette is a real "find anything" tool.
+    const allTaskCandidates = [
+      ...activeTasks.map((t) => ({ t, archived: false })),
+      ...archivedTasks.map((t) => ({ t, archived: true })),
+    ];
+    const matchedTasks = (q
+      ? allTaskCandidates.filter(({ t }) => (t.title || "").toLowerCase().includes(q))
+      : allTaskCandidates
+    ).slice(0, 30); // cap to keep the list scannable
+
+    const items = [];
+    if (matchedActions.length) {
+      items.push({ kind: "group", label: "Actions" });
+      matchedActions.forEach((a) => items.push(a));
+    }
+    if (matchedTasks.length) {
+      items.push({ kind: "group", label: "Tasks" });
+      matchedTasks.forEach(({ t, archived }) => {
+        const bucketLabel = archived ? "archive" : (BUCKETS.find((b) => b.id === t.bucket)?.label || t.bucket);
+        items.push({
+          kind: "task",
+          task: t,
+          archived,
+          label: t.title,
+          hint: t.squad ? `${bucketLabel} · ${t.squad}` : bucketLabel,
+          run: () => {
+            if (archived) {
+              setView("archive");
+            } else {
+              setView("board");
+              // Make sure filters don't hide the task we just jumped to.
+              if (!matchesFilters(t)) clearFilters();
+            }
+            setTimeout(() => flashTask(t.id), 30);
+          },
+        });
+      });
+    }
+    return items;
+  }, [
+    paletteQuery, activeTasks, archivedTasks, squads, settings.darkMode,
+    hideDone, filtersActive, doneNotArchivedCount, matchesFilters, flashTask,
+  ]);
+
+  // Indices of *selectable* items (excluding group headers)
+  const selectableIdxs = useMemo(
+    () => paletteItems.map((it, i) => (it.kind === "group" ? -1 : i)).filter((i) => i >= 0),
+    [paletteItems]
+  );
+  // Clamp the selection whenever the list shape changes
+  useEffect(() => {
+    if (paletteIdx >= selectableIdxs.length) setPaletteIdx(Math.max(0, selectableIdxs.length - 1));
+  }, [selectableIdxs, paletteIdx]);
+
+  const runPaletteItem = (idx) => {
+    const realIdx = selectableIdxs[idx];
+    const item = paletteItems[realIdx];
+    if (!item) return;
+    setPaletteOpen(false);
+    item.run();
+  };
 
   const exportData = () => {
     try {
@@ -584,10 +810,70 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  const palette = paletteOpen && (
+    <div className="sf-palette-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setPaletteOpen(false); }}>
+      <div className="sf-palette">
+        <input
+          ref={paletteInputRef}
+          autoFocus
+          className="sf-palette-input"
+          type="text"
+          placeholder="Find tasks, run actions… (try a squad name, a Jira key, or just type)"
+          value={paletteQuery}
+          onChange={(e) => { setPaletteQuery(e.target.value); setPaletteIdx(0); }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); setPaletteOpen(false); return; }
+            if (e.key === "ArrowDown") { e.preventDefault(); setPaletteIdx((i) => Math.min(i + 1, selectableIdxs.length - 1)); return; }
+            if (e.key === "ArrowUp") { e.preventDefault(); setPaletteIdx((i) => Math.max(i - 1, 0)); return; }
+            if (e.key === "Enter") { e.preventDefault(); runPaletteItem(paletteIdx); return; }
+          }}
+        />
+        <div className="sf-palette-list">
+          {paletteItems.length === 0 && <div className="sf-palette-empty">No matches.</div>}
+          {paletteItems.map((it, i) => {
+            if (it.kind === "group") {
+              return <div className="sf-palette-group" key={`g-${i}`}>{it.label}</div>;
+            }
+            const selectableIndex = selectableIdxs.indexOf(i);
+            const selected = selectableIndex === paletteIdx;
+            const icon = it.kind === "action" ? "▸" : "·";
+            return (
+              <div
+                key={`i-${i}`}
+                className={"sf-palette-item" + (selected ? " selected" : "")}
+                onMouseEnter={() => setPaletteIdx(selectableIndex)}
+                onMouseDown={(e) => { e.preventDefault(); runPaletteItem(selectableIndex); }}
+              >
+                <span className="sf-pal-icon">{icon}</span>
+                <div className="sf-pal-body">
+                  <div className="sf-pal-label">{it.label}</div>
+                  {it.hint && it.hint !== "·" && <div className="sf-pal-hint">{it.hint}</div>}
+                </div>
+                {it.kind === "action" && it.hint && it.hint !== "·" && (
+                  <span className="sf-pal-meta">{it.hint}</span>
+                )}
+                {it.kind === "task" && <span className="sf-pal-meta">{it.hint}</span>}
+              </div>
+            );
+          })}
+        </div>
+        <div className="sf-palette-foot">
+          <span><kbd>↑↓</kbd> navigate</span>
+          <span><kbd>↵</kbd> run</span>
+          <span><kbd>esc</kbd> close</span>
+          <span style={{ marginLeft: "auto" }}>
+            shortcuts: <kbd>n</kbd> add · <kbd>/</kbd> search · <kbd>1-4</kbd> bucket · <kbd>?</kbd> palette
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
   if (!loaded) {
     return (
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
+        {palette}
         <Sidebar view={view} setView={setView} />
         <main className="sf-main"><div className="sf-wrap"><p className="sf-empty">Loading your board…</p></div></main>
       </div>
@@ -609,6 +895,7 @@ export default function App() {
     return (
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
+        {palette}
         <Sidebar view={view} setView={setView} />
         <main className="sf-main">
           <div className="sf-wrap">
@@ -643,7 +930,11 @@ export default function App() {
                   <div className="sf-arc-group" key={g.key}>
                     <div className="sf-arc-date">{g.key}</div>
                     {g.items.map((t) => (
-                      <div className="sf-arc-item" key={t.id}>
+                      <div
+                        className={"sf-arc-item" + (flashTaskId === t.id ? " flash" : "")}
+                        key={t.id}
+                        data-task-id={t.id}
+                      >
                         <div className="sf-arc-body">
                           <div
                             className="sf-arc-title"
@@ -687,6 +978,7 @@ export default function App() {
     return (
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
+        {palette}
         <Sidebar view={view} setView={setView} />
         <main className="sf-main">
           <div className="sf-wrap">
@@ -901,6 +1193,7 @@ export default function App() {
   return (
     <div className={"sf-root" + (settings.darkMode ? "" : " light")} onClick={() => setOpenMenu(null)}>
       <style>{styles}</style>
+      {palette}
       <Sidebar view={view} setView={setView} />
       <main className="sf-main">
       <div className="sf-wrap">
@@ -923,7 +1216,7 @@ export default function App() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onInput={(e) => autoSize(e.currentTarget)}
-            ref={(el) => autoSize(el)}
+            ref={(el) => { addInputRef.current = el; autoSize(el); }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
                 e.preventDefault();
@@ -960,9 +1253,10 @@ export default function App() {
         {/* Filter bar */}
         <div className="sf-filter" onClick={(e) => e.stopPropagation()}>
           <input
+            ref={searchInputRef}
             className="sf-filter-search"
             type="search"
-            placeholder="Search titles…"
+            placeholder="Search titles…  ( / )"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Escape") setSearchTerm(""); }}
@@ -1071,9 +1365,11 @@ export default function App() {
                       className={
                         "sf-task" + (t.done ? " done" : "") +
                         (isDragging ? " dragging" : "") +
-                        (showDropLine ? " drop-before" : "")
+                        (showDropLine ? " drop-before" : "") +
+                        (flashTaskId === t.id ? " flash" : "")
                       }
                       key={t.id}
+                      data-task-id={t.id}
                       draggable={editingId !== t.id && editingSquadId !== t.id}
                       onDragStart={(e) => {
                         setDragId(t.id);
