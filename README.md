@@ -24,7 +24,7 @@ Local-only by design. One JSON file, no account, no sync, no telemetry.
 
 ## Prerequisites
 
-- **Node.js 18+** (`node -v`)
+- **Node.js 22 LTS** or newer (`node -v`). The repo includes a `.nvmrc` pinned to `lts/jod` (Node 22) — if you use [nvm](https://github.com/nvm-sh/nvm), `nvm use` picks the right version automatically. The `engines` field in `package.json` enforces this for `npm install`.
 - That's it. No global installs, no extra build tooling.
 
 ## Run it in development
