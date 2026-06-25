@@ -19,7 +19,7 @@ Local-only by design. One JSON file, no account, no sync, no telemetry.
 - **Archive** with restore + permanent delete, grouped by archive date.
 - **Weekly review** — shipped in the last 7 days, longest-sitting open work, overdue items.
 - **Light / dark theme**, configurable.
-- **Optional Jira enrichment.** Paste a Jira link or key like `PROJ-123` into a task and Foreground pulls the summary + status. Works with classic and scoped Atlassian API tokens (the latter via manual cloudId).
+- **Optional Jira integration.** A dedicated page to import your open issues onto the board, keep linked tasks in sync, and spot drift (Done in Jira but open here, or vice versa). Or just paste a key like `PROJ-123` into a title for inline enrichment. Read-only; works with classic and scoped Atlassian API tokens.
 - **JSON import / export** for backups or migrating between machines.
 
 ## Prerequisites
@@ -62,6 +62,15 @@ Survives restarts and updates. Drop it in a Dropbox / iCloud / Syncthing folder 
 
 ## Jira integration
 
+The dedicated **Jira page** (fourth sidebar icon) is where you connect and work with Jira:
+
+- **Connect** — credentials live here, with a Test &amp; save button.
+- **Import** — run a JQL search (defaults to your open issues, plus one-click presets) and pull selected issues onto the board as tasks titled `KEY summary`, with the link attached.
+- **Linked tasks** — every task with a Jira link and its live status, plus a **Refresh all** button.
+- **Drift detection** — flags tasks that are Done in Jira but still open here (one-click archive) and tasks archived here but still open in Jira (one-click restore). It only surfaces drift — it never changes anything on its own.
+
+You can also just paste a Jira link or key like `PROJ-123` into any task title and Foreground enriches it with the summary + status automatically.
+
 Foreground supports two Atlassian token types. Pick whichever your org allows.
 
 | Token type | Email field | Cloud ID field | Notes |
@@ -69,9 +78,9 @@ Foreground supports two Atlassian token types. Pick whichever your org allows.
 | Classic API token | ✅ required | — | Simplest. Basic auth against your tenant URL. The token inherits your Jira permissions — you need Browse Projects on the relevant projects. |
 | Scoped API token | — leave blank | ✅ required | Routes through `api.atlassian.com/ex/jira/{cloudId}`. Required scopes: `read:jira-work` (or the narrower `read:issue:jira` + `read:issue-meta:jira`). Get your cloudId from `https://<your-tenant>.atlassian.net/_edge/tenant_info`. |
 
-If your org uses corporate SSO for Atlassian, scoped tokens may be rejected by the org's authorization layer even with the right scopes — classic tokens often work where scoped tokens don't. See the in-app Settings screen for the full breakdown.
+If your org uses corporate SSO for Atlassian, scoped tokens may be rejected by the org's authorization layer even with the right scopes — classic tokens often work where scoped tokens don't. The in-app Jira page has the full breakdown.
 
-Foreground only ever reads. The single endpoint it calls is `GET /rest/api/3/issue/{key}` plus a one-shot connection test.
+Foreground only ever reads. It calls `GET /rest/api/3/issue/{key}` for enrichment, `GET /rest/api/3/search/jql` for import, plus a one-shot connection test. It never writes to Jira.
 
 ## Keyboard shortcuts
 

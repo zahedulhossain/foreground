@@ -14,4 +14,5 @@ contextBridge.exposeInMainWorld("storage", {
 contextBridge.exposeInMainWorld("jira", {
   fetch: (creds, key) => ipcRenderer.invoke("jira:fetch", creds, key),
   test: (creds) => ipcRenderer.invoke("jira:test", creds),
+  search: (creds, jql, maxResults) => ipcRenderer.invoke("jira:search", creds, jql, maxResults),
 });

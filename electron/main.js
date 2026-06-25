@@ -168,6 +168,30 @@ function registerJiraHandlers() {
     };
   });
 
+  ipcMain.handle("jira:search", async (_e, creds, jql, maxResults) => {
+    // Uses the current /search/jql endpoint (the legacy /search was deprecated
+    // by Atlassian). Read-only. We only ask for the two fields the UI shows.
+    const q = String(jql || "").trim();
+    if (!q) throw new Error("Empty JQL query.");
+    const cap = Math.min(Math.max(parseInt(maxResults, 10) || 50, 1), 100);
+    const data = await jiraRequest(
+      creds,
+      `/rest/api/3/search/jql?jql=${encodeURIComponent(q)}&fields=summary,status&maxResults=${cap}`
+    );
+    const base = normalizeBaseUrl(creds.baseUrl);
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    return issues.map((it) => {
+      const status = it.fields && it.fields.status;
+      return {
+        key: it.key,
+        summary: it.fields && it.fields.summary,
+        status: status && status.name,
+        statusCategory: status && status.statusCategory && status.statusCategory.key,
+        url: `${base}/browse/${it.key}`,
+      };
+    });
+  });
+
   ipcMain.handle("jira:test", async (_e, creds) => {
     const base = normalizeBaseUrl(creds && creds.baseUrl);
     if (!base) throw new Error("Missing or invalid Jira base URL.");

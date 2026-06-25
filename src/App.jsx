@@ -170,7 +170,42 @@ const styles = `
 .sf-jira-grid label{ font-size:12.5px; color:var(--ink-dim); }
 .sf-jira-grid input{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
 .sf-jira-grid input:focus{ border-color:var(--accent); }
-.sf-jira-actions{ display:flex; gap:8px; align-items:center; margin-top:14px; }
+.sf-jira-actions{ display:flex; gap:8px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+
+.sf-jp-section{ margin-top:24px; }
+.sf-jp-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.sf-jp-title{ font-family:'Fraunces',serif; font-weight:600; font-size:18px; letter-spacing:-0.01em; }
+.sf-jp-sub{ font-size:11.5px; color:var(--ink-faint); margin-top:2px; margin-bottom:12px; line-height:1.45; }
+.sf-jp-card{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.sf-jp-searchbar{ display:flex; gap:8px; align-items:stretch; flex-wrap:wrap; }
+.sf-jp-jql{ flex:1 1 360px; min-width:0; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:9px 11px; font-size:12.5px; font-family:'IBM Plex Mono',monospace; outline:none; }
+.sf-jp-jql:focus{ border-color:var(--accent); }
+.sf-jp-presets{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.sf-jp-preset{ font-size:11px; padding:4px 10px; border-radius:20px; border:1px solid var(--line); background:transparent; color:var(--ink-dim); cursor:pointer; font-family:inherit; }
+.sf-jp-preset:hover{ border-color:var(--accent); color:var(--accent); }
+.sf-jp-results{ margin-top:14px; max-height:420px; overflow-y:auto; }
+.sf-jp-row{ display:flex; gap:10px; align-items:flex-start; padding:9px 10px; border-radius:8px; cursor:pointer; }
+.sf-jp-row:hover{ background:var(--panel-2); }
+.sf-jp-row.linked{ opacity:.5; cursor:default; }
+.sf-jp-row.linked:hover{ background:transparent; }
+.sf-jp-check{ flex:0 0 auto; width:16px; height:16px; border-radius:4px; border:1.5px solid var(--ink-faint); margin-top:2px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; }
+.sf-jp-check.on{ background:var(--accent); border-color:var(--accent); color:var(--btn-ink); }
+.sf-jp-row-body{ flex:1; min-width:0; }
+.sf-jp-row-title{ font-size:13.5px; line-height:1.4; word-break:break-word; }
+.sf-jp-row-meta{ font-size:11px; color:var(--ink-faint); margin-top:3px; font-family:'IBM Plex Mono',monospace; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.sf-jp-key{ color:var(--ink-dim); font-weight:600; }
+.sf-jp-importbar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+.sf-jp-importbar .sf-jp-grow{ margin-left:auto; }
+.sf-jp-statusdot{ display:inline-block; width:7px; height:7px; border-radius:50%; flex:0 0 auto; background:var(--ink-faint); }
+.sf-jp-statusdot.cat-done{ background:#7c9a6d; }
+.sf-jp-statusdot.cat-indeterminate{ background:var(--accent); }
+.sf-jp-statusdot.cat-new{ background:var(--ink-faint); }
+.sf-jp-drift{ background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
+.sf-jp-drift-title{ font-size:12.5px; color:var(--warn-ink); font-weight:500; margin-bottom:8px; }
+.sf-jp-drift-row{ display:flex; gap:10px; align-items:center; padding:6px 0; }
+.sf-jp-drift-row .sf-jp-row-body{ flex:1; }
+.sf-jp-empty{ color:var(--ink-faint); font-size:12.5px; font-style:italic; padding:14px 4px; }
+.sf-jp-notready{ color:var(--ink-faint); font-size:13px; padding:20px; text-align:center; line-height:1.6; }
 .sf-mono{ font-family:'IBM Plex Mono',monospace; }
 .sf-h1{ font-family:'Fraunces',serif; font-weight:900; font-size:34px; letter-spacing:-0.02em; margin:0; line-height:1; }
 .sf-sub{ color:var(--ink-dim); font-size:13.5px; margin-top:8px; max-width:560px; line-height:1.5; }
@@ -311,12 +346,22 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
-  const [view, setView] = useState("board"); // board | archive | settings
+  const [view, setView] = useState("board"); // board | archive | review | jira | settings
   const [ioStatus, setIoStatus] = useState(null); // { kind: "ok"|"err", msg }
   const fileInputRef = React.useRef(null);
   const [jiraCreds, setJiraCreds] = useState({ baseUrl: "", email: "", token: "", cloudId: "" });
   const [jiraTestStatus, setJiraTestStatus] = useState(null); // { kind, msg }
   const [jiraLoadingId, setJiraLoadingId] = useState(null);
+  // Jira page: import search + bulk refresh state
+  const DEFAULT_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
+  const [jiraQuery, setJiraQuery] = useState(DEFAULT_JQL);
+  const [jiraResults, setJiraResults] = useState(null); // null = not searched yet; [] = no results
+  const [jiraSearchState, setJiraSearchState] = useState("idle"); // idle | loading | error
+  const [jiraSearchError, setJiraSearchError] = useState("");
+  const [jiraImportSel, setJiraImportSel] = useState(() => new Set());
+  const [jiraImportBucket, setJiraImportBucket] = useState("week");
+  const [jiraImportTeam, setJiraImportTeam] = useState("");
+  const [jiraBulkStatus, setJiraBulkStatus] = useState(null); // { kind, msg }
   const [draft, setDraft] = useState("");
   const [draftBucket, setDraftBucket] = useState("today");
   const [draftTeam, setDraftTeam] = useState("");
@@ -553,6 +598,93 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jiraCreds, jiraConfigured]);
 
+  // Run a JQL search for the import picker.
+  const runJiraSearch = async (jql) => {
+    if (!jiraConfigured) return;
+    setJiraSearchState("loading");
+    setJiraSearchError("");
+    try {
+      const results = await window.jira.search(jiraCreds, jql ?? jiraQuery, 50);
+      setJiraResults(results);
+      setJiraImportSel(new Set());
+      setJiraSearchState("idle");
+    } catch (e) {
+      setJiraSearchError(String((e && e.message) || e));
+      setJiraSearchState("error");
+    }
+  };
+
+  // Turn the checked search results into board tasks. Skips issues already
+  // linked to an existing task so re-importing can't create duplicates.
+  const importSelectedIssues = () => {
+    if (!jiraResults || jiraImportSel.size === 0) return;
+    const now = Date.now();
+    const linkedKeys = new Set(tasks.map((t) => t.jira && t.jira.key).filter(Boolean));
+    const chosen = jiraResults.filter((r) => jiraImportSel.has(r.key) && !linkedKeys.has(r.key));
+    const skipped = jiraImportSel.size - chosen.length;
+    if (chosen.length === 0) {
+      setJiraBulkStatus({ kind: "err", msg: "All selected issues are already on your board." });
+      return;
+    }
+    const newTasks = chosen.map((r, i) => ({
+      id: uid(),
+      title: `${r.key} ${r.summary || ""}`.trim(),
+      bucket: jiraImportBucket,
+      team: jiraImportTeam.trim() || null,
+      person: null,
+      chaseDate: null,
+      dueDate: null,
+      done: false,
+      notes: null,
+      createdAt: now + i, // +i keeps a stable order and avoids identical stamps
+      bucketChangedAt: now + i,
+      jira: {
+        key: r.key,
+        url: r.url,
+        summary: r.summary,
+        status: r.status,
+        statusCategory: r.statusCategory,
+        syncedAt: now,
+      },
+    }));
+    setTasks((prev) => [...newTasks, ...prev]);
+    setJiraImportSel(new Set());
+    const label = BUCKETS.find((b) => b.id === jiraImportBucket)?.label || jiraImportBucket;
+    setJiraBulkStatus({
+      kind: "ok",
+      msg: `Imported ${newTasks.length} into ${label}${skipped ? ` · ${skipped} already linked, skipped` : ""}.`,
+    });
+  };
+
+  // Re-pull status for every linked task at once.
+  const bulkRefreshLinked = async () => {
+    const linked = tasks.filter((t) => t.jira && t.jira.key);
+    if (linked.length === 0) return;
+    setJiraBulkStatus({ kind: "info", msg: `Refreshing ${linked.length}…` });
+    let ok = 0;
+    let fail = 0;
+    for (const t of linked) {
+      try {
+        const data = await window.jira.fetch(jiraCreds, t.jira.key);
+        update(t.id, {
+          jira: {
+            key: data.key,
+            url: data.url,
+            summary: data.summary,
+            status: data.status,
+            statusCategory: data.statusCategory,
+            syncedAt: Date.now(),
+          },
+        });
+        ok++;
+      } catch (e) {
+        update(t.id, { jira: { ...t.jira, error: String((e && e.message) || e), syncedAt: Date.now() } });
+        fail++;
+      }
+    }
+    setJiraBulkStatus({ kind: fail ? "err" : "ok", msg: `Refreshed ${ok}${fail ? ` · ${fail} failed` : ""}.` });
+  };
+
   // Persist on change (after initial load)
   useEffect(() => {
     if (!loaded) return;
@@ -739,6 +871,7 @@ export default function App() {
     addAction("Go to Board", "·", () => setView("board"), "dashboard home");
     addAction("Go to Archive", "·", () => setView("archive"), "completed done");
     addAction("Go to Review", "·", () => setView("review"), "weekly summary stats shipped");
+    addAction("Go to Jira", "·", () => setView("jira"), "import issues sync linked tickets");
     addAction("Go to Settings", "·", () => setView("settings"), "config preferences");
     addAction(
       settings.darkMode ? "Switch to light mode" : "Switch to dark mode",
@@ -1294,6 +1427,325 @@ export default function App() {
     );
   }
 
+  if (view === "jira") {
+    const linkedActive = activeTasks.filter((t) => t.jira && t.jira.key);
+    const linkedArchived = archivedTasks.filter((t) => t.jira && t.jira.key);
+    const allLinked = [...linkedActive, ...linkedArchived];
+    const linkedKeys = new Set(allLinked.map((t) => t.jira.key));
+    // Drift: ticket Done in Jira but task still open here, and vice versa.
+    const driftDone = linkedActive.filter((t) => t.jira.statusCategory === "done");
+    const driftOpen = linkedArchived.filter(
+      (t) => t.jira.statusCategory && t.jira.statusCategory !== "done"
+    );
+
+    const presets = [
+      { label: "My open issues", jql: DEFAULT_JQL },
+      { label: "Updated this week", jql: "assignee = currentUser() AND updated >= -7d ORDER BY updated DESC" },
+      { label: "Reported by me, open", jql: "reporter = currentUser() AND statusCategory != Done ORDER BY updated DESC" },
+    ];
+    const toggleSel = (key) =>
+      setJiraImportSel((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    const dotClass = (cat) => "sf-jp-statusdot cat-" + (cat || "new");
+
+    return (
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+        <style>{styles}</style>
+        {palette}
+        <Sidebar view={view} setView={setView} />
+        <main className="sf-main">
+          <div className="sf-wrap">
+            <header>
+              <h1 className="sf-h1">Jira</h1>
+              <p className="sf-sub">
+                Pull issues onto your board and keep linked tasks in sync. Foreground
+                only reads — nothing here ever writes back to Jira.
+              </p>
+            </header>
+            <hr className="sf-rule" />
+
+            {/* Connection */}
+            <div className="sf-jp-section">
+              <div className="sf-jp-title">
+                Connection{" "}
+                {jiraConfigured && (
+                  <span style={{ color: "#7c9a6d", fontSize: 12, marginLeft: 6 }}>● connected</span>
+                )}
+              </div>
+              <div className="sf-jp-sub">
+                Create a token at{" "}
+                <span className="sf-mono">id.atlassian.com/manage-profile/security/api-tokens</span>.
+                Two types work, both with an <span className="sf-mono">ATATT…</span> prefix —{" "}
+                <b>classic</b> (fill email, leave Cloud ID blank) or <b>scoped</b> (leave email blank,
+                fill Cloud ID; scopes <span className="sf-mono">read:jira-work</span> or{" "}
+                <span className="sf-mono">read:issue:jira</span> + <span className="sf-mono">read:issue-meta:jira</span>).
+              </div>
+              <div className="sf-jp-card">
+                <div className="sf-jira-grid">
+                  <label htmlFor="jira-base">Base URL</label>
+                  <input
+                    id="jira-base"
+                    type="text"
+                    placeholder="https://acme.atlassian.net"
+                    value={jiraCreds.baseUrl}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, baseUrl: e.target.value }))}
+                  />
+                  <label htmlFor="jira-email">Email <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(classic only)</span></label>
+                  <input
+                    id="jira-email"
+                    type="email"
+                    placeholder="you@company.com — leave blank for scoped tokens"
+                    value={jiraCreds.email}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, email: e.target.value }))}
+                  />
+                  <label htmlFor="jira-token">API token</label>
+                  <input
+                    id="jira-token"
+                    type="password"
+                    placeholder="atatt..."
+                    value={jiraCreds.token}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, token: e.target.value }))}
+                  />
+                  <label htmlFor="jira-cloudid">Cloud ID <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(scoped only)</span></label>
+                  <input
+                    id="jira-cloudid"
+                    type="text"
+                    placeholder="leave blank for classic tokens"
+                    value={jiraCreds.cloudId}
+                    onChange={(e) => setJiraCreds((c) => ({ ...c, cloudId: e.target.value }))}
+                  />
+                </div>
+                {!jiraCreds.email && (
+                  <div className="sf-set-desc" style={{ marginTop: 8 }}>
+                    <b>Finding your Cloud ID:</b> open{" "}
+                    <span className="sf-mono">{(jiraCreds.baseUrl || "https://YOUR-SITE.atlassian.net").replace(/\/+$/, "")}/_edge/tenant_info</span>{" "}
+                    in a browser while signed in — copy the <span className="sf-mono">cloudId</span> from the JSON.
+                  </div>
+                )}
+                <div className="sf-jira-actions">
+                  <button
+                    className="sf-set-btn"
+                    onClick={async () => {
+                      setJiraTestStatus({ kind: "info", msg: "testing…" });
+                      try {
+                        const r = await window.jira.test(jiraCreds);
+                        setJiraTestStatus({ kind: "ok", msg: `Connected as ${r.displayName}.` });
+                        persistJiraCreds(jiraCreds);
+                      } catch (e) {
+                        setJiraTestStatus({ kind: "err", msg: String((e && e.message) || e) });
+                      }
+                    }}
+                    disabled={!jiraCreds.baseUrl || !jiraCreds.token}
+                  >Test &amp; save</button>
+                  {jiraConfigured && (
+                    <button
+                      className="sf-set-btn danger"
+                      onClick={() => {
+                        persistJiraCreds({ baseUrl: "", email: "", token: "", cloudId: "" });
+                        setJiraTestStatus({ kind: "ok", msg: "Disconnected." });
+                      }}
+                    >Disconnect</button>
+                  )}
+                  {jiraTestStatus && (
+                    <span className={"sf-set-status " + (jiraTestStatus.kind === "ok" ? "ok" : jiraTestStatus.kind === "err" ? "err" : "")} style={{ marginTop: 0 }}>
+                      {jiraTestStatus.msg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Import */}
+            <div className="sf-jp-section">
+              <div className="sf-jp-title">Import issues</div>
+              <div className="sf-jp-sub">
+                Search Jira, then pull selected issues onto the board — titled
+                “KEY summary”, with the link attached so the status chip stays live.
+              </div>
+              <div className="sf-jp-card">
+                {!jiraConfigured ? (
+                  <div className="sf-jp-notready">Connect Jira above to import issues.</div>
+                ) : (
+                  <>
+                    <div className="sf-jp-searchbar">
+                      <input
+                        className="sf-jp-jql"
+                        value={jiraQuery}
+                        onChange={(e) => setJiraQuery(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runJiraSearch(); } }}
+                        placeholder="JQL — e.g. assignee = currentUser() AND statusCategory != Done"
+                      />
+                      <button
+                        className="sf-set-btn"
+                        onClick={() => runJiraSearch()}
+                        disabled={jiraSearchState === "loading"}
+                      >{jiraSearchState === "loading" ? "Searching…" : "Search"}</button>
+                    </div>
+                    <div className="sf-jp-presets">
+                      {presets.map((p) => (
+                        <button
+                          key={p.label}
+                          className="sf-jp-preset"
+                          onClick={() => { setJiraQuery(p.jql); runJiraSearch(p.jql); }}
+                        >{p.label}</button>
+                      ))}
+                    </div>
+
+                    {jiraSearchState === "error" && (
+                      <div className="sf-set-status err" style={{ marginTop: 10 }}>{jiraSearchError}</div>
+                    )}
+
+                    {jiraResults && (
+                      <div className="sf-jp-results">
+                        {jiraResults.length === 0 ? (
+                          <div className="sf-jp-empty">No issues match this query.</div>
+                        ) : jiraResults.map((r) => {
+                          const already = linkedKeys.has(r.key);
+                          const sel = jiraImportSel.has(r.key);
+                          return (
+                            <div
+                              key={r.key}
+                              className={"sf-jp-row" + (already ? " linked" : "")}
+                              onClick={() => { if (!already) toggleSel(r.key); }}
+                            >
+                              <div className={"sf-jp-check" + ((sel || already) ? " on" : "")}>
+                                {(sel || already) ? "✓" : ""}
+                              </div>
+                              <div className="sf-jp-row-body">
+                                <div className="sf-jp-row-title">{r.summary || "(no summary)"}</div>
+                                <div className="sf-jp-row-meta">
+                                  <span className="sf-jp-key">{r.key}</span>
+                                  <span className={dotClass(r.statusCategory)} />
+                                  {r.status || "—"}
+                                  {already && <span>· already on board</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {jiraResults && jiraResults.length > 0 && (
+                      <div className="sf-jp-importbar">
+                        <span style={{ fontSize: 12, color: "var(--ink-dim)" }}>
+                          {jiraImportSel.size} selected
+                        </span>
+                        <span style={{ fontSize: 12, color: "var(--ink-faint)" }}>into</span>
+                        <select className="sf-sel" value={jiraImportBucket} onChange={(e) => setJiraImportBucket(e.target.value)}>
+                          {BUCKETS.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+                        </select>
+                        <input
+                          className="sf-sel"
+                          list="sf-teams-import"
+                          placeholder="Team…"
+                          value={jiraImportTeam}
+                          onChange={(e) => setJiraImportTeam(e.target.value)}
+                          style={{ flex: "0 1 130px" }}
+                        />
+                        <datalist id="sf-teams-import">
+                          {teams.map((s) => <option key={s} value={s} />)}
+                        </datalist>
+                        <button
+                          className="sf-btn"
+                          onClick={importSelectedIssues}
+                          disabled={jiraImportSel.size === 0}
+                        >Import</button>
+                        {jiraBulkStatus && (
+                          <span className={"sf-set-status " + (jiraBulkStatus.kind === "ok" ? "ok" : jiraBulkStatus.kind === "err" ? "err" : "")} style={{ marginTop: 0 }}>
+                            {jiraBulkStatus.msg}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Linked dashboard */}
+            {jiraConfigured && allLinked.length > 0 && (
+              <div className="sf-jp-section">
+                <div className="sf-jp-head">
+                  <div>
+                    <div className="sf-jp-title">Linked tasks ({allLinked.length})</div>
+                    <div className="sf-jp-sub">Every task with a Jira link and its current status.</div>
+                  </div>
+                  <button className="sf-set-btn" onClick={bulkRefreshLinked}>Refresh all</button>
+                </div>
+
+                {(driftDone.length > 0 || driftOpen.length > 0) && (
+                  <div className="sf-jp-drift">
+                    <div className="sf-jp-drift-title">
+                      Out of sync ({driftDone.length + driftOpen.length})
+                    </div>
+                    {driftDone.map((t) => (
+                      <div key={t.id} className="sf-jp-drift-row">
+                        <span className="sf-jp-statusdot cat-done" />
+                        <div className="sf-jp-row-body">
+                          <div className="sf-jp-row-title" dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }} />
+                          <div className="sf-jp-row-meta">
+                            <span className="sf-jp-key">{t.jira.key}</span> Done in Jira · still open here
+                          </div>
+                        </div>
+                        <button className="sf-mini" onClick={() => archive(t.id)} title="Archive this task">archive</button>
+                      </div>
+                    ))}
+                    {driftOpen.map((t) => (
+                      <div key={t.id} className="sf-jp-drift-row">
+                        <span className={dotClass(t.jira.statusCategory)} />
+                        <div className="sf-jp-row-body">
+                          <div className="sf-jp-row-title" dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }} />
+                          <div className="sf-jp-row-meta">
+                            <span className="sf-jp-key">{t.jira.key}</span> {t.jira.status || "open"} in Jira · archived here
+                          </div>
+                        </div>
+                        <button className="sf-mini" onClick={() => restore(t.id)} title="Restore from archive">restore</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="sf-jp-results">
+                  {allLinked.map((t) => {
+                    const archived = !!t.archivedAt;
+                    return (
+                      <div
+                        key={t.id}
+                        className="sf-jp-row"
+                        onClick={() => { setView(archived ? "archive" : "board"); setTimeout(() => flashTask(t.id), 30); }}
+                      >
+                        <span className={dotClass(t.jira.statusCategory)} style={{ marginTop: 6 }} />
+                        <div className="sf-jp-row-body">
+                          <div className="sf-jp-row-title" dangerouslySetInnerHTML={{ __html: renderTitle(t.title) }} />
+                          <div className="sf-jp-row-meta">
+                            <span className="sf-jp-key">{t.jira.key}</span>
+                            {t.jira.status || (t.jira.error ? "sync failed" : "not synced")}
+                            <span>· {archived ? "archive" : (BUCKETS.find((b) => b.id === t.bucket)?.label || t.bucket)}</span>
+                          </div>
+                        </div>
+                        <a
+                          href={t.jira.url || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="sf-mini"
+                          onClick={(e) => { e.stopPropagation(); if (!t.jira.url) e.preventDefault(); }}
+                        >open ↗</a>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (view === "settings") {
     return (
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
@@ -1397,102 +1849,21 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="sf-set-row" style={{ display: "block" }}>
+              <div className="sf-set-row">
                 <div>
-                  <div className="sf-set-label">Jira integration {jiraConfigured && <span style={{ color: "#7c9a6d", fontSize: 11, marginLeft: 6 }}>● connected</span>}</div>
+                  <div className="sf-set-label">
+                    Jira integration{" "}
+                    {jiraConfigured && <span style={{ color: "#7c9a6d", fontSize: 11, marginLeft: 6 }}>● connected</span>}
+                  </div>
                   <div className="sf-set-desc">
-                    Paste a Jira link or key (like <span className="sf-mono">PROJ-123</span>) into a task title
-                    and Foreground will pull the summary and current status. Create a token at{" "}
-                    <span className="sf-mono">id.atlassian.com/manage-profile/security/api-tokens</span>.
-                    Foreground only reads — it calls{" "}
-                    <span className="sf-mono">GET /rest/api/3/issue/{`{key}`}</span> and nothing else.
-                    <br /><br />
-                    <b>Two token types are supported.</b> Both share the same{" "}
-                    <span className="sf-mono">ATATT…</span> prefix, so check how you created it on the Atlassian token page.
-                    <br />
-                    • <b>Classic API token</b> (no scopes selected at creation) — simplest path. Fill in your{" "}
-                    <b>email</b> and the token; leave Cloud ID blank. Auth uses Basic against your tenant URL.
-                    The token inherits your Jira permissions — you need <b>Browse Projects</b> on the projects
-                    whose issues you want to enrich.<br />
-                    • <b>Scoped API token</b> (scopes picked at creation) — leave email <b>blank</b>, fill in
-                    Cloud ID (instructions appear below the form). Foreground routes through{" "}
-                    <span className="sf-mono">api.atlassian.com/ex/jira/{`{cloudId}`}/…</span>. Required scopes:{" "}
-                    <span className="sf-mono">read:jira-work</span> (or the narrower pair{" "}
-                    <span className="sf-mono">read:issue:jira</span> + <span className="sf-mono">read:issue-meta:jira</span>).
+                    Connect Jira to enrich pasted issue keys, import your open issues, and
+                    keep linked tasks in sync. Credentials and import tools now live on the
+                    dedicated Jira page.
                   </div>
                 </div>
-                <div className="sf-jira-grid">
-                  <label htmlFor="jira-base">Base URL</label>
-                  <input
-                    id="jira-base"
-                    type="text"
-                    placeholder="https://acme.atlassian.net"
-                    value={jiraCreds.baseUrl}
-                    onChange={(e) => setJiraCreds((c) => ({ ...c, baseUrl: e.target.value }))}
-                  />
-                  <label htmlFor="jira-email">Email <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(classic tokens only)</span></label>
-                  <input
-                    id="jira-email"
-                    type="email"
-                    placeholder="you@company.com — leave blank for scoped tokens"
-                    value={jiraCreds.email}
-                    onChange={(e) => setJiraCreds((c) => ({ ...c, email: e.target.value }))}
-                  />
-                  <label htmlFor="jira-token">API token</label>
-                  <input
-                    id="jira-token"
-                    type="password"
-                    placeholder="atatt..."
-                    value={jiraCreds.token}
-                    onChange={(e) => setJiraCreds((c) => ({ ...c, token: e.target.value }))}
-                  />
-                  <label htmlFor="jira-cloudid">Cloud ID <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(scoped tokens only)</span></label>
-                  <input
-                    id="jira-cloudid"
-                    type="text"
-                    placeholder="leave blank for classic tokens"
-                    value={jiraCreds.cloudId}
-                    onChange={(e) => setJiraCreds((c) => ({ ...c, cloudId: e.target.value }))}
-                  />
-                </div>
-                {!jiraCreds.email && (
-                  <div className="sf-set-desc" style={{ marginTop: 8 }}>
-                    <b>Finding your Cloud ID:</b> open{" "}
-                    <span className="sf-mono">{(jiraCreds.baseUrl || "https://YOUR-SITE.atlassian.net").replace(/\/+$/, "")}/_edge/tenant_info</span>{" "}
-                    in a browser while signed in — copy the <span className="sf-mono">cloudId</span> value from the JSON response.
-                    Required for scoped API tokens because Atlassian's auto-discovery endpoint often refuses them with a bare 401.
-                  </div>
-                )}
-                <div className="sf-jira-actions">
-                  <button
-                    className="sf-set-btn"
-                    onClick={async () => {
-                      setJiraTestStatus({ kind: "info", msg: "testing…" });
-                      try {
-                        const r = await window.jira.test(jiraCreds);
-                        setJiraTestStatus({ kind: "ok", msg: `Connected as ${r.displayName}.` });
-                        persistJiraCreds(jiraCreds);
-                      } catch (e) {
-                        setJiraTestStatus({ kind: "err", msg: String(e && e.message || e) });
-                      }
-                    }}
-                    disabled={!jiraCreds.baseUrl || !jiraCreds.token}
-                  >Test & save</button>
-                  {jiraConfigured && (
-                    <button
-                      className="sf-set-btn danger"
-                      onClick={() => {
-                        persistJiraCreds({ baseUrl: "", email: "", token: "" });
-                        setJiraTestStatus({ kind: "ok", msg: "Disconnected." });
-                      }}
-                    >Disconnect</button>
-                  )}
-                  {jiraTestStatus && (
-                    <span className={"sf-set-status " + (jiraTestStatus.kind === "ok" ? "ok" : jiraTestStatus.kind === "err" ? "err" : "")} style={{ marginTop: 0 }}>
-                      {jiraTestStatus.msg}
-                    </span>
-                  )}
-                </div>
+                <button className="sf-set-btn" onClick={() => setView("jira")}>
+                  Open Jira page →
+                </button>
               </div>
             </div>
 
@@ -2020,6 +2391,31 @@ function Sidebar({ view, setView }) {
         </svg>
       </button>
       <button
+        className={"sf-nav" + (view === "review" ? " active" : "")}
+        onClick={() => setView("review")}
+        title="Review"
+        aria-label="Review"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 3v18h18" />
+          <path d="M7 14l4-4 3 3 5-6" />
+        </svg>
+      </button>
+      <button
+        className={"sf-nav" + (view === "jira" ? " active" : "")}
+        onClick={() => setView("jira")}
+        title="Jira"
+        aria-label="Jira"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 13a8 8 0 0 1 8-8" />
+          <path d="M20 11a8 8 0 0 1-8 8" />
+          <path d="M12 5l3 3-3 3" />
+          <path d="M12 19l-3-3 3-3" />
+        </svg>
+      </button>
+      <div className="sf-side-spacer" />
+      <button
         className={"sf-nav" + (view === "archive" ? " active" : "")}
         onClick={() => setView("archive")}
         title="Archive"
@@ -2031,18 +2427,6 @@ function Sidebar({ view, setView }) {
           <path d="M10 12h4" />
         </svg>
       </button>
-      <button
-        className={"sf-nav" + (view === "review" ? " active" : "")}
-        onClick={() => setView("review")}
-        title="Review"
-        aria-label="Review"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3 3v18h18" />
-          <path d="M7 14l4-4 3 3 5-6" />
-        </svg>
-      </button>
-      <div className="sf-side-spacer" />
       <button
         className={"sf-nav" + (view === "settings" ? " active" : "")}
         onClick={() => setView("settings")}
