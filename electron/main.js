@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -417,6 +417,22 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Open external links (target=_blank / window.open) in the OS browser
+  // rather than spawning an in-app BrowserWindow.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  // Guard against same-window navigation away from the app (e.g. a link with
+  // no target): keep the app put, send the URL to the browser instead.
+  win.webContents.on("will-navigate", (e, url) => {
+    const devUrl = "http://localhost:5173";
+    if (isDev && url.startsWith(devUrl)) return; // allow HMR/in-app nav in dev
+    if (!isDev && url.startsWith("file://")) return; // allow in-app nav in prod
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   if (isDev) {
