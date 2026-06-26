@@ -192,6 +192,151 @@ function registerJiraHandlers() {
     });
   });
 
+  // ── Team Pulse data access ─────────────────────────────────────────────
+  // All read-only. Aggregation happens in the renderer; these just fetch.
+
+  // Map a raw Jira issue to the slim shape the Pulse UI needs. `fields` is the
+  // raw fields object so the renderer can read a custom story-points field by
+  // id without us hard-coding which one it is.
+  const slimIssue = (it) => {
+    const f = it.fields || {};
+    const status = f.status || {};
+    const assignee = f.assignee || null;
+    return {
+      key: it.key,
+      status: status.name || null,
+      statusCategory: (status.statusCategory && status.statusCategory.key) || null,
+      assignee: assignee
+        ? { accountId: assignee.accountId, displayName: assignee.displayName }
+        : null,
+      fields: f,
+    };
+  };
+
+  const DEFAULT_FIELDS = ["status", "assignee"];
+
+  // List of fields available in the instance — used to detect the story-points
+  // custom field (its id varies per site).
+  ipcMain.handle("jira:fields", async (_e, creds) => {
+    const data = await jiraRequest(creds, "/rest/api/3/field");
+    return (Array.isArray(data) ? data : []).map((f) => ({ id: f.id, name: f.name }));
+  });
+
+  // All statuses defined in the instance, with their default category. Used
+  // to let the user remap status names into the three Pulse buckets.
+  ipcMain.handle("jira:statuses", async (_e, creds) => {
+    const data = await jiraRequest(creds, "/rest/api/3/status");
+    const seen = new Set();
+    const out = [];
+    (Array.isArray(data) ? data : []).forEach((s) => {
+      if (!s || !s.name || seen.has(s.name)) return;
+      seen.add(s.name);
+      out.push({
+        name: s.name,
+        category: (s.statusCategory && s.statusCategory.key) || "new",
+      });
+    });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  });
+
+  // All boards the token can see, with their type (scrum | kanban | simple).
+  ipcMain.handle("jira:boards", async (_e, creds) => {
+    const out = [];
+    let startAt = 0;
+    for (let i = 0; i < 20; i++) {
+      const data = await jiraRequest(creds, `/rest/agile/1.0/board?startAt=${startAt}&maxResults=50`);
+      const vals = Array.isArray(data.values) ? data.values : [];
+      vals.forEach((b) => out.push({ id: b.id, name: b.name, type: b.type }));
+      if (data.isLast || vals.length === 0) break;
+      startAt += vals.length;
+    }
+    return out;
+  });
+
+  // Active sprint for a board, or null. Kanban boards (and tokens without the
+  // jira-software scopes) throw here — we swallow it and return null so the
+  // page degrades to status-flow rather than failing.
+  ipcMain.handle("jira:activeSprint", async (_e, creds, boardId) => {
+    try {
+      const data = await jiraRequest(
+        creds,
+        `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint?state=active`
+      );
+      const vals = Array.isArray(data.values) ? data.values : [];
+      if (vals.length === 0) return null;
+      const s = vals[0];
+      return { id: s.id, name: s.name, startDate: s.startDate, endDate: s.endDate, goal: s.goal };
+    } catch {
+      return null;
+    }
+  });
+
+  // Issues in a board (optionally narrowed by an extra JQL clause). Used for
+  // board-defined teams — the board's own filter scopes the rest.
+  ipcMain.handle("jira:boardIssues", async (_e, creds, boardId, jql, fields, cap) => {
+    const fieldList = Array.isArray(fields) && fields.length ? fields : DEFAULT_FIELDS;
+    const fieldsParam = encodeURIComponent(fieldList.join(","));
+    const jqlParam = jql ? `&jql=${encodeURIComponent(jql)}` : "";
+    const limit = Math.min(cap || 300, 500);
+    const out = [];
+    let startAt = 0;
+    for (let i = 0; i < 10 && out.length < limit; i++) {
+      const data = await jiraRequest(
+        creds,
+        `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/issue?startAt=${startAt}&maxResults=100&fields=${fieldsParam}${jqlParam}`
+      );
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      out.push(...issues);
+      if (issues.length === 0 || startAt + issues.length >= (data.total || 0)) break;
+      startAt += issues.length;
+    }
+    return out.slice(0, limit).map(slimIssue);
+  });
+
+  // Issues in a sprint — for Scrum sprint-progress.
+  ipcMain.handle("jira:sprintIssues", async (_e, creds, boardId, sprintId, fields) => {
+    const fieldList = Array.isArray(fields) && fields.length ? fields : DEFAULT_FIELDS;
+    const fieldsParam = encodeURIComponent(fieldList.join(","));
+    const out = [];
+    let startAt = 0;
+    for (let i = 0; i < 10 && out.length < 500; i++) {
+      const data = await jiraRequest(
+        creds,
+        `/rest/agile/1.0/board/${encodeURIComponent(boardId)}/sprint/${encodeURIComponent(sprintId)}/issue?startAt=${startAt}&maxResults=100&fields=${fieldsParam}`
+      );
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      out.push(...issues);
+      if (issues.length === 0 || startAt + issues.length >= (data.total || 0)) break;
+      startAt += issues.length;
+    }
+    return out.map(slimIssue);
+  });
+
+  // Issues matching an arbitrary JQL — for JQL-defined teams. Paginates via
+  // the /search/jql nextPageToken.
+  ipcMain.handle("jira:teamIssues", async (_e, creds, jql, fields, cap) => {
+    const q = String(jql || "").trim();
+    if (!q) throw new Error("Empty JQL query.");
+    const fieldList = Array.isArray(fields) && fields.length ? fields : DEFAULT_FIELDS;
+    const fieldsParam = encodeURIComponent(fieldList.join(","));
+    const limit = Math.min(cap || 300, 500);
+    const out = [];
+    let token = null;
+    for (let i = 0; i < 10 && out.length < limit; i++) {
+      const tok = token ? `&nextPageToken=${encodeURIComponent(token)}` : "";
+      const data = await jiraRequest(
+        creds,
+        `/rest/api/3/search/jql?jql=${encodeURIComponent(q)}&fields=${fieldsParam}&maxResults=100${tok}`
+      );
+      const issues = Array.isArray(data.issues) ? data.issues : [];
+      out.push(...issues);
+      token = data.nextPageToken;
+      if (data.isLast || !token || issues.length === 0) break;
+    }
+    return out.slice(0, limit).map(slimIssue);
+  });
+
   ipcMain.handle("jira:test", async (_e, creds) => {
     const base = normalizeBaseUrl(creds && creds.baseUrl);
     if (!base) throw new Error("Missing or invalid Jira base URL.");

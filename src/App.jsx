@@ -14,8 +14,25 @@ const BUCKETS = [
 
 const STORAGE_KEY = "foreground:state:v1";
 const JIRA_KEY = "foreground:jira:v1";
+const PULSE_KEY = "foreground:pulse:v1";
 
-const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true };
+const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true, teamPulse: false };
+
+// Team Pulse config: tracked teams + how to read progress.
+//   team = { id, name, source: "board" | "jql", boardId?, boardType?, jql? }
+// statusMap remaps a Jira status NAME → bucket ("new" | "indeterminate" | "done").
+// Anything not listed falls back to the status's own Jira category.
+const DEFAULT_PULSE = {
+  teams: [],
+  // Done window: "rolling" = last N days (auto-advances); "range" = fixed from–to.
+  doneWindowMode: "rolling",
+  doneWindowDays: 14,
+  doneWindowFrom: "",
+  doneWindowTo: "",
+  progressUnit: "count",
+  pointsFieldId: null,
+  statusMap: {},
+};
 
 // Match a JIRA issue key — uppercase letters + numbers, dash, digits.
 const JIRA_KEY_RE = /\b([A-Z][A-Z0-9]+-\d+)\b/;
@@ -206,6 +223,53 @@ const styles = `
 .sf-jp-drift-row .sf-jp-row-body{ flex:1; }
 .sf-jp-empty{ color:var(--ink-faint); font-size:12.5px; font-style:italic; padding:14px 4px; }
 .sf-jp-notready{ color:var(--ink-faint); font-size:13px; padding:20px; text-align:center; line-height:1.6; }
+
+.sf-tp-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; margin-top:8px; }
+@media(max-width:820px){ .sf-tp-grid{ grid-template-columns:1fr; } }
+.sf-tp-card{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
+.sf-tp-card-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.sf-tp-name{ font-family:'Fraunces',serif; font-weight:600; font-size:17px; letter-spacing:-0.01em; }
+.sf-tp-src{ font-size:10.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; }
+.sf-tp-statusbar{ display:flex; height:10px; border-radius:6px; overflow:hidden; margin:12px 0 6px; background:var(--panel-2); }
+.sf-tp-seg{ height:100%; }
+.sf-tp-seg.new{ background:var(--ink-faint); }
+.sf-tp-seg.indeterminate{ background:var(--accent); }
+.sf-tp-seg.done{ background:#7c9a6d; }
+.sf-tp-legend{ display:flex; gap:12px; font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; flex-wrap:wrap; }
+.sf-tp-sprint{ margin-top:12px; padding:10px 12px; background:var(--panel-2); border-radius:8px; }
+.sf-tp-sprint-head{ display:flex; justify-content:space-between; gap:8px; font-size:12px; color:var(--ink-dim); margin-bottom:6px; }
+.sf-tp-sprint-track{ height:8px; background:var(--bg); border-radius:5px; overflow:hidden; }
+.sf-tp-sprint-fill{ height:100%; background:#7c9a6d; border-radius:5px; }
+.sf-tp-people{ margin-top:12px; }
+.sf-tp-person{ display:flex; align-items:center; gap:10px; padding:5px 0; }
+.sf-tp-person-name{ font-size:12.5px; width:140px; flex:0 0 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sf-tp-person-name.unassigned{ color:var(--ink-faint); font-style:italic; }
+.sf-tp-person-track{ flex:1; height:10px; background:var(--panel-2); border-radius:5px; overflow:hidden; }
+.sf-tp-person-fill{ height:100%; background:var(--accent); border-radius:5px; }
+.sf-tp-person-num{ width:34px; flex:0 0 auto; text-align:right; font-size:12px; font-family:'IBM Plex Mono',monospace; color:var(--ink-dim); }
+.sf-tp-foot{ display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:11px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; }
+.sf-tp-err{ font-size:12px; color:var(--danger); margin-top:8px; line-height:1.4; }
+.sf-tp-degraded{ font-size:11px; color:var(--warn-ink); margin-top:8px; }
+.sf-tp-cfg-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 0; border-bottom:1px solid var(--line); transition:opacity .12s ease; }
+.sf-tp-cfg-row:last-child{ border-bottom:0; }
+.sf-tp-cfg-row.dragging{ opacity:.4; }
+.sf-tp-cfg-row.drop-before{ box-shadow:inset 0 2px 0 var(--accent); }
+.sf-tp-cfg-grip{ flex:0 0 auto; color:var(--ink-faint); font-size:12px; cursor:grab; user-select:none; letter-spacing:-1px; line-height:1; }
+.sf-tp-cfg-grip:hover{ color:var(--ink-dim); }
+.sf-tp-cfg-name{ font-size:13px; font-weight:500; min-width:120px; }
+.sf-tp-cfg-def{ font-size:11.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sf-tp-addbar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.sf-tp-addbar input, .sf-tp-addbar select{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
+.sf-tp-addbar input:focus, .sf-tp-addbar select:focus{ border-color:var(--accent); }
+.sf-tp-controls{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0 12px; }
+.sf-tp-window{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; min-height:36px; }
+.sf-tp-statusmap{ margin-top:8px; max-height:300px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 10px; }
+.sf-tp-status-row{ display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--line); }
+.sf-tp-status-row:last-child{ border-bottom:0; }
+.sf-tp-status-name{ flex:1; min-width:0; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sf-tp-status-def{ font-size:10.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; flex:0 0 auto; }
+.sf-tp-status-sel{ flex:0 0 auto; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:5px 8px; font-size:12px; font-family:inherit; outline:none; }
+.sf-tp-status-sel.overridden{ border-color:var(--accent); }
 .sf-mono{ font-family:'IBM Plex Mono',monospace; }
 .sf-h1{ font-family:'Fraunces',serif; font-weight:900; font-size:34px; letter-spacing:-0.02em; margin:0; line-height:1; }
 .sf-sub{ color:var(--ink-dim); font-size:13.5px; margin-top:8px; max-width:560px; line-height:1.5; }
@@ -362,6 +426,20 @@ export default function App() {
   const [jiraImportBucket, setJiraImportBucket] = useState("week");
   const [jiraImportTeam, setJiraImportTeam] = useState("");
   const [jiraBulkStatus, setJiraBulkStatus] = useState(null); // { kind, msg }
+  // Team Pulse
+  const [pulseConfig, setPulseConfig] = useState(DEFAULT_PULSE);
+  const [pulseData, setPulseData] = useState({}); // teamId -> aggregated result | { error }
+  const [pulseLoading, setPulseLoading] = useState(false);
+  const [pulseLastRun, setPulseLastRun] = useState(null);
+  const [pulseBoards, setPulseBoards] = useState(null); // cached board list for the config picker
+  const [pulseFieldHint, setPulseFieldHint] = useState(null); // status line for field loading
+  const [pulseAllFields, setPulseAllFields] = useState(null); // full [{id,name}] list, cached
+  const [pulsePointSearch, setPulsePointSearch] = useState(""); // free-text filter over fields
+  const [pulseStatuses, setPulseStatuses] = useState(null); // [{name,category}] from the instance
+  const [pulseStatusOpen, setPulseStatusOpen] = useState(false); // status-mapping panel open?
+  const [pulseDraft, setPulseDraft] = useState({ name: "", source: "board", boardId: "", jql: "" });
+  const [pulseDragId, setPulseDragId] = useState(null);
+  const [pulseDropBeforeId, setPulseDropBeforeId] = useState(null);
   const [draft, setDraft] = useState("");
   const [draftBucket, setDraftBucket] = useState("today");
   const [draftTeam, setDraftTeam] = useState("");
@@ -537,6 +615,13 @@ export default function App() {
           });
         }
       } catch {}
+      try {
+        const pres = await window.storage.get(PULSE_KEY);
+        if (pres && pres.value) {
+          const parsed = JSON.parse(pres.value);
+          setPulseConfig({ ...DEFAULT_PULSE, ...parsed, teams: Array.isArray(parsed.teams) ? parsed.teams : [] });
+        }
+      } catch {}
       setLoaded(true);
     })();
   }, []);
@@ -544,6 +629,11 @@ export default function App() {
   const persistJiraCreds = useCallback(async (next) => {
     setJiraCreds(next);
     try { await window.storage.set(JIRA_KEY, JSON.stringify(next)); } catch {}
+  }, []);
+
+  const persistPulseConfig = useCallback(async (next) => {
+    setPulseConfig(next);
+    try { await window.storage.set(PULSE_KEY, JSON.stringify(next)); } catch {}
   }, []);
 
   // Two valid shapes:
@@ -683,6 +773,161 @@ export default function App() {
       }
     }
     setJiraBulkStatus({ kind: fail ? "err" : "ok", msg: `Refreshed ${ok}${fail ? ` · ${fail} failed` : ""}.` });
+  };
+
+  // ── Team Pulse fetch + aggregation ───────────────────────────────────────
+  // The done-side clause: rolling "last N days" or a fixed from–to range.
+  // Range falls back to rolling if either date is missing.
+  const doneClause = () => {
+    const c = pulseConfig;
+    if (c.doneWindowMode === "range" && c.doneWindowFrom && c.doneWindowTo) {
+      // Quote dates; include the whole end day with an explicit time.
+      return `(resolutiondate >= "${c.doneWindowFrom}" AND resolutiondate <= "${c.doneWindowTo} 23:59")`;
+    }
+    return `resolutiondate >= -${c.doneWindowDays || 14}d`;
+  };
+  // Open work is always included; only the done side is windowed.
+  const windowJql = () => `(statusCategory != Done OR ${doneClause()})`;
+  const wrapJql = (raw) => {
+    const parts = String(raw || "").split(/order\s+by/i);
+    const base = parts[0].trim();
+    const order = parts[1] ? ` ORDER BY ${parts[1].trim()}` : "";
+    const body = base ? `(${base}) AND ${windowJql()}` : windowJql();
+    return body + order;
+  };
+  // Human label for the done window, shown on each card's footer.
+  const windowLabel = () => {
+    const c = pulseConfig;
+    if (c.doneWindowMode === "range" && c.doneWindowFrom && c.doneWindowTo) {
+      return `${c.doneWindowFrom}→${c.doneWindowTo}`;
+    }
+    return `${c.doneWindowDays || 14}d`;
+  };
+
+  const pointsOf = (issue) => {
+    const fid = pulseConfig.pointsFieldId;
+    if (!fid || !issue.fields) return 0;
+    const v = issue.fields[fid];
+    return typeof v === "number" ? v : 0;
+  };
+
+  // Classify an issue into a Pulse bucket: a per-status-name override if the
+  // user set one, otherwise the status's own Jira category.
+  const statusBucket = (issue) => {
+    const map = pulseConfig.statusMap || {};
+    return map[issue.status] || issue.statusCategory || "new";
+  };
+
+  // Aggregate a flat issue list into the per-team shape the card renders.
+  const aggregateTeam = (issues, usePoints) => {
+    const open = issues.filter((it) => statusBucket(it) !== "done");
+    const doneRecent = issues.filter((it) => statusBucket(it) === "done");
+    const statusCounts = { new: 0, indeterminate: 0, done: 0 };
+    issues.forEach((it) => {
+      const c = statusBucket(it);
+      statusCounts[c] = (statusCounts[c] || 0) + 1;
+    });
+    const byPerson = new Map();
+    open.forEach((it) => {
+      const name = it.assignee ? it.assignee.displayName : "Unassigned";
+      const cur = byPerson.get(name) || { name, count: 0, points: 0 };
+      cur.count += 1;
+      cur.points += pointsOf(it);
+      byPerson.set(name, cur);
+    });
+    const assignees = Array.from(byPerson.values()).sort((a, b) =>
+      usePoints ? b.points - a.points : b.count - a.count
+    );
+    return {
+      openCount: open.length,
+      openPoints: open.reduce((s, it) => s + pointsOf(it), 0),
+      doneCount: doneRecent.length,
+      donePoints: doneRecent.reduce((s, it) => s + pointsOf(it), 0),
+      statusCounts,
+      assignees,
+    };
+  };
+
+  const refreshPulse = async () => {
+    if (!jiraConfigured || pulseConfig.teams.length === 0) return;
+    setPulseLoading(true);
+    const usePoints = pulseConfig.progressUnit === "points";
+    const fields = ["status", "assignee", ...(usePoints && pulseConfig.pointsFieldId ? [pulseConfig.pointsFieldId] : [])];
+    const next = {};
+    for (const team of pulseConfig.teams) {
+      try {
+        let issues;
+        let sprint = null;
+        if (team.source === "board" && team.boardId) {
+          issues = await window.jira.boardIssues(jiraCreds, team.boardId, windowJql(), fields, 400);
+          // Scrum board → try active sprint progress.
+          if (team.boardType === "scrum") {
+            const s = await window.jira.activeSprint(jiraCreds, team.boardId);
+            if (s) {
+              const sprintIssues = await window.jira.sprintIssues(jiraCreds, team.boardId, s.id, fields);
+              const committed = usePoints
+                ? sprintIssues.reduce((sum, it) => sum + pointsOf(it), 0)
+                : sprintIssues.length;
+              const done = usePoints
+                ? sprintIssues.filter((it) => statusBucket(it) === "done").reduce((sum, it) => sum + pointsOf(it), 0)
+                : sprintIssues.filter((it) => statusBucket(it) === "done").length;
+              sprint = { name: s.name, endDate: s.endDate, committed, done };
+            }
+          }
+        } else if (team.source === "jql" && team.jql) {
+          issues = await window.jira.teamIssues(jiraCreds, wrapJql(team.jql), fields, 400);
+        } else {
+          next[team.id] = { error: "Team has no board or JQL configured." };
+          continue;
+        }
+        next[team.id] = { ...aggregateTeam(issues, usePoints), sprint, boardType: team.boardType };
+      } catch (e) {
+        next[team.id] = { error: String((e && e.message) || e) };
+      }
+    }
+    setPulseData(next);
+    setPulseLoading(false);
+    setPulseLastRun(Date.now());
+  };
+
+  // Load the instance's statuses for the mapping panel (cached for session).
+  const loadPulseStatuses = async () => {
+    if (!jiraConfigured) return;
+    try {
+      const statuses = await window.jira.statuses(jiraCreds);
+      setPulseStatuses(statuses);
+    } catch (e) {
+      setPulseStatuses([]);
+    }
+  };
+
+  // Load the board list for the config picker (cached for the session).
+  const loadPulseBoards = async () => {
+    if (!jiraConfigured) return;
+    try {
+      const boards = await window.jira.boards(jiraCreds);
+      setPulseBoards(boards);
+    } catch (e) {
+      setPulseBoards([]);
+    }
+  };
+
+  // Detect the story-points field id by name.
+  // Load the full field list once, so the user can search all of it by name or
+  // id — not just a hard-coded "point" subset.
+  const loadPulseFields = async () => {
+    if (!jiraConfigured) return;
+    setPulseFieldHint("loading fields…");
+    try {
+      const fields = await window.jira.fields(jiraCreds);
+      setPulseAllFields(fields);
+      // Pre-seed the search with "point" as a convenience, since that's the
+      // common case — the user can clear it to search anything.
+      setPulsePointSearch((prev) => prev || "point");
+      setPulseFieldHint(`${fields.length} fields loaded — search by name or id.`);
+    } catch (e) {
+      setPulseFieldHint(String((e && e.message) || e));
+    }
   };
 
   // Persist on change (after initial load)
@@ -872,6 +1117,9 @@ export default function App() {
     addAction("Go to Archive", "·", () => setView("archive"), "completed done");
     addAction("Go to Review", "·", () => setView("review"), "weekly summary stats shipped");
     addAction("Go to Jira", "·", () => setView("jira"), "import issues sync linked tickets");
+    if (settings.teamPulse) {
+      addAction("Go to Team Pulse", "·", () => setView("pulse"), "teams load progress sprint involvement");
+    }
     addAction("Go to Settings", "·", () => setView("settings"), "config preferences");
     addAction(
       settings.darkMode ? "Switch to light mode" : "Switch to dark mode",
@@ -961,7 +1209,7 @@ export default function App() {
     }
     return items;
   }, [
-    paletteQuery, activeTasks, archivedTasks, teams, settings.darkMode,
+    paletteQuery, activeTasks, archivedTasks, teams, settings.darkMode, settings.teamPulse,
     hideDone, filtersActive, doneNotArchivedCount, matchesFilters, flashTask,
   ]);
 
@@ -1107,7 +1355,7 @@ export default function App() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main"><div className="sf-wrap"><p className="sf-empty">Loading your board…</p></div></main>
       </div>
     );
@@ -1169,7 +1417,7 @@ export default function App() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
           <div className="sf-wrap">
             <header>
@@ -1342,7 +1590,7 @@ export default function App() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
           <div className="sf-wrap">
             <header>
@@ -1427,6 +1675,476 @@ export default function App() {
     );
   }
 
+  if (view === "pulse") {
+    const usePoints = pulseConfig.progressUnit === "points";
+    const addPulseTeam = () => {
+      const name = pulseDraft.name.trim();
+      if (!name) return;
+      let team;
+      if (pulseDraft.source === "board") {
+        if (!pulseDraft.boardId) return;
+        const b = (pulseBoards || []).find((x) => String(x.id) === String(pulseDraft.boardId));
+        team = { id: uid(), name, source: "board", boardId: Number(pulseDraft.boardId), boardType: b ? b.type : null };
+      } else {
+        if (!pulseDraft.jql.trim()) return;
+        team = { id: uid(), name, source: "jql", jql: pulseDraft.jql.trim() };
+      }
+      persistPulseConfig({ ...pulseConfig, teams: [...pulseConfig.teams, team] });
+      setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "" });
+    };
+    const removePulseTeam = (id) =>
+      persistPulseConfig({ ...pulseConfig, teams: pulseConfig.teams.filter((t) => t.id !== id) });
+
+    // Reorder teams. beforeId === null appends to the end. The Pulse cards
+    // iterate the same array, so they re-sort to match automatically.
+    const reorderPulseTeams = (dragId, beforeId) => {
+      if (!dragId || dragId === beforeId) return;
+      const teams = [...pulseConfig.teams];
+      const from = teams.findIndex((t) => t.id === dragId);
+      if (from < 0) return;
+      const [moved] = teams.splice(from, 1);
+      let to = beforeId ? teams.findIndex((t) => t.id === beforeId) : teams.length;
+      if (to < 0) to = teams.length;
+      teams.splice(to, 0, moved);
+      persistPulseConfig({ ...pulseConfig, teams });
+    };
+
+    const maxLoad = Math.max(
+      1,
+      ...Object.values(pulseData).flatMap((d) =>
+        d && d.assignees ? d.assignees.map((a) => (usePoints ? a.points : a.count)) : [0]
+      )
+    );
+
+    return (
+      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+        <style>{styles}</style>
+        {palette}
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
+        <main className="sf-main">
+          <div className="sf-wrap">
+            <header>
+              <h1 className="sf-h1">Team Pulse</h1>
+              <p className="sf-sub">
+                Where each team's work sits and who's carrying it — pulled live from Jira.
+                A planning aid for spreading load and spotting blockers, not a monitoring tool.
+              </p>
+            </header>
+            <hr className="sf-rule" />
+
+            {!jiraConfigured ? (
+              <div className="sf-jp-notready">
+                Connect Jira first — Team Pulse reads your teams' issues through it.
+                <br />
+                <button className="sf-set-btn" style={{ marginTop: 12 }} onClick={() => setView("jira")}>
+                  Open Jira page →
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Config */}
+                <div className="sf-jp-section">
+                  <div className="sf-jp-head">
+                    <div>
+                      <div className="sf-jp-title">Tracked teams</div>
+                      <div className="sf-jp-sub">
+                        Map each team to a Jira board (gives Scrum/Kanban detection + sprint
+                        progress) or a raw JQL query.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="sf-tp-controls">
+                    <select
+                      className="sf-sel"
+                      value={pulseConfig.progressUnit}
+                      onChange={(e) => persistPulseConfig({ ...pulseConfig, progressUnit: e.target.value })}
+                      title="Progress unit"
+                    >
+                      <option value="count">Count issues</option>
+                      <option value="points">Story points</option>
+                    </select>
+                    <select
+                      className="sf-sel"
+                      value={pulseConfig.doneWindowMode}
+                      onChange={(e) => persistPulseConfig({ ...pulseConfig, doneWindowMode: e.target.value })}
+                      title="Done window mode"
+                    >
+                      <option value="rolling">Rolling days</option>
+                      <option value="range">Date range</option>
+                    </select>
+                    <div className="sf-tp-window">
+                      {pulseConfig.doneWindowMode === "range" ? (
+                        <>
+                          <input
+                            className="sf-sel"
+                            type="date"
+                            value={pulseConfig.doneWindowFrom}
+                            onChange={(e) => persistPulseConfig({ ...pulseConfig, doneWindowFrom: e.target.value })}
+                            title="Done from"
+                          />
+                          <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>→</span>
+                          <input
+                            className="sf-sel"
+                            type="date"
+                            value={pulseConfig.doneWindowTo}
+                            onChange={(e) => persistPulseConfig({ ...pulseConfig, doneWindowTo: e.target.value })}
+                            title="Done to"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            className="sf-sel"
+                            type="number"
+                            min={1}
+                            max={365}
+                            value={pulseConfig.doneWindowDays}
+                            onChange={(e) => {
+                              const n = parseInt(e.target.value, 10);
+                              if (Number.isFinite(n) && n >= 1 && n <= 365) {
+                                persistPulseConfig({ ...pulseConfig, doneWindowDays: n });
+                              }
+                            }}
+                            style={{ width: 70 }}
+                            title="Done window (days)"
+                          />
+                          <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>days done-window</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {usePoints && (() => {
+                    const fq = pulsePointSearch.trim().toLowerCase();
+                    const matches = pulseAllFields
+                      ? pulseAllFields
+                          .filter((f) => {
+                            if (!fq) return true;
+                            return (f.name || "").toLowerCase().includes(fq)
+                              || String(f.id).toLowerCase().includes(fq);
+                          })
+                          .slice(0, 100)
+                      : [];
+                    return (
+                      <div style={{ marginBottom: 12 }}>
+                        <div className="sf-set-desc" style={{ marginBottom: 6 }}>
+                          Story-points field — instances often have several (e.g. “Story Points”
+                          vs “Story point estimate”). Load fields, then search by name or id and pick yours.
+                        </div>
+                        <div className="sf-tp-addbar" style={{ marginTop: 0, paddingTop: 0, borderTop: 0 }}>
+                          {!pulseAllFields ? (
+                            <button className="sf-set-btn" onClick={loadPulseFields}>Load fields</button>
+                          ) : (
+                            <>
+                              <input
+                                className="sf-sel"
+                                placeholder="Search fields by name or id…"
+                                value={pulsePointSearch}
+                                onChange={(e) => setPulsePointSearch(e.target.value)}
+                                style={{ flex: "1 1 220px" }}
+                              />
+                              <select
+                                className="sf-sel"
+                                value={pulseConfig.pointsFieldId || ""}
+                                onChange={(e) => persistPulseConfig({ ...pulseConfig, pointsFieldId: e.target.value || null })}
+                                style={{ flex: "1 1 260px" }}
+                              >
+                                <option value="">
+                                  {matches.length ? `Select field… (${matches.length} match${matches.length === 1 ? "" : "es"})` : "No matches"}
+                                </option>
+                                {matches.map((f) => (
+                                  <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
+                                ))}
+                              </select>
+                              <button className="sf-set-btn" onClick={loadPulseFields} title="Reload field list">↻</button>
+                            </>
+                          )}
+                          {pulseConfig.pointsFieldId && (
+                            <button
+                              className="sf-set-btn danger"
+                              onClick={() => { persistPulseConfig({ ...pulseConfig, pointsFieldId: null }); }}
+                            >Clear</button>
+                          )}
+                        </div>
+                        <div className="sf-set-desc" style={{ marginTop: 6 }}>
+                          Current: <span className="sf-mono">{pulseConfig.pointsFieldId || "not set"}</span>
+                          {pulseFieldHint && <span style={{ marginLeft: 10, color: "var(--ink-faint)" }}>{pulseFieldHint}</span>}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Status mapping */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="sf-tp-addbar" style={{ marginTop: 0, paddingTop: 0, borderTop: 0 }}>
+                      <button
+                        className="sf-set-btn"
+                        onClick={() => {
+                          const opening = !pulseStatusOpen;
+                          setPulseStatusOpen(opening);
+                          if (opening && !pulseStatuses) loadPulseStatuses();
+                        }}
+                      >
+                        {pulseStatusOpen ? "Hide status mapping ▾" : "Status mapping ▸"}
+                      </button>
+                      {Object.keys(pulseConfig.statusMap || {}).length > 0 && (
+                        <>
+                          <span style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>
+                            {Object.keys(pulseConfig.statusMap).length} overridden
+                          </span>
+                          <button
+                            className="sf-set-btn danger"
+                            onClick={() => persistPulseConfig({ ...pulseConfig, statusMap: {} })}
+                          >Reset to Jira defaults</button>
+                        </>
+                      )}
+                    </div>
+                    {pulseStatusOpen && (
+                      <>
+                        <div className="sf-set-desc" style={{ marginTop: 8 }}>
+                          Reclassify any status into To do / In progress / Done. Unset statuses
+                          use Jira's own category. Applies across every team's counts and sprint progress.
+                        </div>
+                        {!pulseStatuses ? (
+                          <div className="sf-jp-empty">Loading statuses…</div>
+                        ) : pulseStatuses.length === 0 ? (
+                          <div className="sf-jp-empty">Couldn't load statuses (check token access).</div>
+                        ) : (
+                          <div className="sf-tp-statusmap">
+                            {pulseStatuses.map((s) => {
+                              const override = (pulseConfig.statusMap || {})[s.name];
+                              return (
+                                <div className="sf-tp-status-row" key={s.name}>
+                                  <span className="sf-tp-status-name" title={s.name}>{s.name}</span>
+                                  <span className="sf-tp-status-def">jira: {s.category}</span>
+                                  <select
+                                    className={"sf-tp-status-sel" + (override ? " overridden" : "")}
+                                    value={override || "__default"}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      const map = { ...(pulseConfig.statusMap || {}) };
+                                      // Storing the choice == default keeps the row visibly set;
+                                      // an explicit "default" option removes the override.
+                                      if (v === "__default") delete map[s.name];
+                                      else map[s.name] = v;
+                                      persistPulseConfig({ ...pulseConfig, statusMap: map });
+                                    }}
+                                  >
+                                    <option value="__default">Default ({s.category})</option>
+                                    <option value="new">To do</option>
+                                    <option value="indeterminate">In progress</option>
+                                    <option value="done">Done</option>
+                                  </select>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div
+                    className="sf-jp-card"
+                    onDragOver={(e) => { if (pulseDragId) { e.preventDefault(); } }}
+                    onDrop={(e) => {
+                      // Drop on the card (below the rows) → move to end.
+                      if (!pulseDragId) return;
+                      e.preventDefault();
+                      reorderPulseTeams(pulseDragId, null);
+                      setPulseDragId(null); setPulseDropBeforeId(null);
+                    }}
+                  >
+                    {pulseConfig.teams.length === 0 && (
+                      <div className="sf-jp-empty">No teams yet — add one below.</div>
+                    )}
+                    {pulseConfig.teams.map((t) => (
+                      <div
+                        className={
+                          "sf-tp-cfg-row" +
+                          (pulseDragId === t.id ? " dragging" : "") +
+                          (pulseDropBeforeId === t.id && pulseDragId && pulseDragId !== t.id ? " drop-before" : "")
+                        }
+                        key={t.id}
+                        draggable
+                        onDragStart={(e) => { setPulseDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setPulseDragId(null); setPulseDropBeforeId(null); }}
+                        onDragOver={(e) => {
+                          if (!pulseDragId || pulseDragId === t.id) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPulseDropBeforeId(t.id);
+                        }}
+                        onDrop={(e) => {
+                          if (!pulseDragId) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          reorderPulseTeams(pulseDragId, t.id);
+                          setPulseDragId(null); setPulseDropBeforeId(null);
+                        }}
+                      >
+                        <span className="sf-tp-cfg-grip" title="Drag to reorder">⋮⋮</span>
+                        <span className="sf-tp-cfg-name">{t.name}</span>
+                        <span className="sf-tp-cfg-def">
+                          {t.source === "board"
+                            ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
+                            : t.jql}
+                        </span>
+                        <button className="sf-mini" onClick={() => removePulseTeam(t.id)} title="Remove">✕</button>
+                      </div>
+                    ))}
+
+                    <div className="sf-tp-addbar">
+                      <input
+                        placeholder="Team name"
+                        value={pulseDraft.name}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, name: e.target.value }))}
+                        style={{ flex: "0 1 160px" }}
+                      />
+                      <select
+                        value={pulseDraft.source}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, source: e.target.value }))}
+                      >
+                        <option value="board">Board</option>
+                        <option value="jql">JQL</option>
+                      </select>
+                      {pulseDraft.source === "board" ? (
+                        pulseBoards ? (
+                          <select
+                            value={pulseDraft.boardId}
+                            onChange={(e) => setPulseDraft((d) => ({ ...d, boardId: e.target.value }))}
+                            style={{ flex: "1 1 220px" }}
+                          >
+                            <option value="">Select a board…</option>
+                            {pulseBoards.map((b) => (
+                              <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
+                        )
+                      ) : (
+                        <input
+                          placeholder="JQL — e.g. project = AUTH"
+                          value={pulseDraft.jql}
+                          onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
+                          style={{ flex: "1 1 260px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5 }}
+                        />
+                      )}
+                      <button className="sf-btn" onClick={addPulseTeam} disabled={!pulseDraft.name.trim()}>Add team</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pulse */}
+                <div className="sf-jp-section">
+                  <div className="sf-jp-head">
+                    <div>
+                      <div className="sf-jp-title">Pulse</div>
+                      <div className="sf-jp-sub">
+                        {pulseLastRun ? `Last refreshed ${new Date(pulseLastRun).toLocaleTimeString()}` : "Not refreshed yet."}
+                      </div>
+                    </div>
+                    <button
+                      className="sf-set-btn"
+                      onClick={refreshPulse}
+                      disabled={pulseLoading || pulseConfig.teams.length === 0}
+                    >{pulseLoading ? "Refreshing…" : "Refresh"}</button>
+                  </div>
+
+                  {pulseConfig.teams.length === 0 ? (
+                    <div className="sf-jp-empty">Add a team above, then refresh.</div>
+                  ) : (
+                    <div className="sf-tp-grid">
+                      {pulseConfig.teams.map((team) => {
+                        const d = pulseData[team.id];
+                        return (
+                          <div className="sf-tp-card" key={team.id}>
+                            <div className="sf-tp-card-head">
+                              <span className="sf-tp-name">{team.name}</span>
+                              <span className="sf-tp-src">
+                                {team.source === "board" ? `${team.boardType || "board"}` : "jql"}
+                              </span>
+                            </div>
+
+                            {!d ? (
+                              <div className="sf-jp-empty">Refresh to load.</div>
+                            ) : d.error ? (
+                              <div className="sf-tp-err">{d.error}</div>
+                            ) : (
+                              <>
+                                {(() => {
+                                  const total = d.statusCounts.new + d.statusCounts.indeterminate + d.statusCounts.done || 1;
+                                  const pct = (n) => `${(n / total) * 100}%`;
+                                  return (
+                                    <>
+                                      <div className="sf-tp-statusbar">
+                                        <div className="sf-tp-seg new" style={{ width: pct(d.statusCounts.new) }} />
+                                        <div className="sf-tp-seg indeterminate" style={{ width: pct(d.statusCounts.indeterminate) }} />
+                                        <div className="sf-tp-seg done" style={{ width: pct(d.statusCounts.done) }} />
+                                      </div>
+                                      <div className="sf-tp-legend">
+                                        <span>To do {d.statusCounts.new}</span>
+                                        <span>In progress {d.statusCounts.indeterminate}</span>
+                                        <span>Done {d.statusCounts.done}</span>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+
+                                {team.source === "board" && team.boardType === "scrum" && !d.sprint && (
+                                  <div className="sf-tp-degraded">No active sprint, or sprint access needs jira-software scopes.</div>
+                                )}
+
+                                {d.sprint && (
+                                  <div className="sf-tp-sprint">
+                                    <div className="sf-tp-sprint-head">
+                                      <span>{d.sprint.name}</span>
+                                      <span>{d.sprint.done}/{d.sprint.committed} {usePoints ? "pts" : "issues"} done</span>
+                                    </div>
+                                    <div className="sf-tp-sprint-track">
+                                      <div className="sf-tp-sprint-fill" style={{ width: `${d.sprint.committed ? (d.sprint.done / d.sprint.committed) * 100 : 0}%` }} />
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="sf-tp-people">
+                                  {d.assignees.length === 0 ? (
+                                    <div className="sf-jp-empty">No open work.</div>
+                                  ) : d.assignees.slice(0, 8).map((a) => {
+                                    const val = usePoints ? a.points : a.count;
+                                    return (
+                                      <div className="sf-tp-person" key={a.name}>
+                                        <span className={"sf-tp-person-name" + (a.name === "Unassigned" ? " unassigned" : "")}>{a.name}</span>
+                                        <div className="sf-tp-person-track">
+                                          <div className="sf-tp-person-fill" style={{ width: `${(val / maxLoad) * 100}%` }} />
+                                        </div>
+                                        <span className="sf-tp-person-num">{val}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="sf-tp-foot">
+                                  <span>{usePoints ? `${d.openPoints} pts open` : `${d.openCount} open`}</span>
+                                  <span>{usePoints ? `${d.donePoints} pts` : `${d.doneCount}`} done · {windowLabel()}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (view === "jira") {
     const linkedActive = activeTasks.filter((t) => t.jira && t.jira.key);
     const linkedArchived = archivedTasks.filter((t) => t.jira && t.jira.key);
@@ -1455,7 +2173,7 @@ export default function App() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
           <div className="sf-wrap">
             <header>
@@ -1751,7 +2469,7 @@ export default function App() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
-        <Sidebar view={view} setView={setView} />
+        <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
           <div className="sf-wrap">
             <header>
@@ -1812,6 +2530,23 @@ export default function App() {
                   onClick={() => setSettings((s) => ({ ...s, showBalance: !s.showBalance }))}
                   aria-pressed={settings.showBalance}
                   aria-label="Toggle balance panel"
+                />
+              </div>
+
+              <div className="sf-set-row">
+                <div>
+                  <div className="sf-set-label">Team Pulse <span style={{ color: "var(--ink-faint)", fontSize: 11 }}>(beta)</span></div>
+                  <div className="sf-set-desc">
+                    Adds a Jira-backed page tracking your teams' load, progress, and who's
+                    carrying what. Requires Jira to be connected. Shows a new sidebar icon
+                    when on.
+                  </div>
+                </div>
+                <button
+                  className={"sf-toggle" + (settings.teamPulse ? " on" : "")}
+                  onClick={() => setSettings((s) => ({ ...s, teamPulse: !s.teamPulse }))}
+                  aria-pressed={settings.teamPulse}
+                  aria-label="Toggle Team Pulse"
                 />
               </div>
 
@@ -1885,7 +2620,7 @@ export default function App() {
     <div className={"sf-root" + (settings.darkMode ? "" : " light")} onClick={() => setOpenMenu(null)}>
       <style>{styles}</style>
       {palette}
-      <Sidebar view={view} setView={setView} />
+      <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
       <main className="sf-main">
       <div className="sf-wrap">
         <header>
@@ -2374,7 +3109,7 @@ export default function App() {
   );
 }
 
-function Sidebar({ view, setView }) {
+function Sidebar({ view, setView, pulseEnabled }) {
   return (
     <nav className="sf-side">
       <button
@@ -2414,6 +3149,18 @@ function Sidebar({ view, setView }) {
           <path d="M12 19l-3-3 3-3" />
         </svg>
       </button>
+      {pulseEnabled && (
+        <button
+          className={"sf-nav" + (view === "pulse" ? " active" : "")}
+          onClick={() => setView("pulse")}
+          title="Team Pulse"
+          aria-label="Team Pulse"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h4l2 6 4-14 2 8 2-3h4" />
+          </svg>
+        </button>
+      )}
       <div className="sf-side-spacer" />
       <button
         className={"sf-nav" + (view === "archive" ? " active" : "")}
