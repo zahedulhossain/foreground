@@ -15,6 +15,8 @@ export function PulseView() {
   } = useStore();
     const usePoints = pulseConfig.progressUnit === "points";
     const [pulseTab, setPulseTab] = React.useState("pulse"); // pulse | kpis
+    const [hideInactive, setHideInactive] = React.useState(false);
+    const activeTeams = pulseConfig.teams.filter((t) => t.active !== false);
     // Drill-down drawer selection: { teamId, teamName, bucket } | null.
     const [drawer, setDrawer] = React.useState(null);
     React.useEffect(() => {
@@ -57,10 +59,10 @@ export function PulseView() {
       if (pulseDraft.source === "board") {
         if (!pulseDraft.boardId) return;
         const b = (pulseBoards || []).find((x) => String(x.id) === String(pulseDraft.boardId));
-        team = { id: uid(), name, source: "board", boardId: Number(pulseDraft.boardId), boardType: b ? b.type : null };
+        team = { id: uid(), name, active: true, source: "board", boardId: Number(pulseDraft.boardId), boardType: b ? b.type : null };
       } else {
         if (!pulseDraft.jql.trim()) return;
-        team = { id: uid(), name, source: "jql", jql: pulseDraft.jql.trim(), rawJql: !!pulseDraft.rawJql };
+        team = { id: uid(), name, active: true, source: "jql", jql: pulseDraft.jql.trim(), rawJql: !!pulseDraft.rawJql };
       }
       persistPulseConfig({ ...pulseConfig, teams: [...pulseConfig.teams, team] });
       setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "", rawJql: false });
@@ -148,13 +150,13 @@ export function PulseView() {
 
         <div className="sf-jp-section">
           <div className="sf-jp-title">By team</div>
-          {pulseConfig.teams.length === 0 ? (
-            <div className="sf-jp-empty">Add teams on the Pulse tab first.</div>
+          {activeTeams.length === 0 ? (
+            <div className="sf-jp-empty">No active teams — add or activate a team on the Pulse tab.</div>
           ) : !anyKpiEnabled ? (
             <div className="sf-jp-empty">Enable a KPI above to see status.</div>
           ) : (
             <div className="sf-tp-grid">
-              {pulseConfig.teams.map((team) => {
+              {activeTeams.map((team) => {
                 const d = pulseData[team.id];
                 const evals = d && !d.error ? evaluateTeamKpis(d, kpiTargets, usePoints) : [];
                 return (
@@ -277,9 +279,19 @@ export function PulseView() {
                       <div className="sf-jp-title">Tracked teams</div>
                       <div className="sf-jp-sub">
                         Map each team to a Jira board (gives Scrum/Kanban detection + sprint
-                        progress) or a raw JQL query.
+                        progress) or a raw JQL query. Only active teams are fetched on refresh.
                       </div>
                     </div>
+                    {pulseConfig.teams.some((t) => t.active === false) && (
+                      <label className="sf-tp-asis" title="Hide inactive teams from this list">
+                        <input
+                          type="checkbox"
+                          checked={hideInactive}
+                          onChange={(e) => setHideInactive(e.target.checked)}
+                        />
+                        hide inactive
+                      </label>
+                    )}
                   </div>
                   <div className="sf-tp-controls">
                     <select
@@ -487,10 +499,16 @@ export function PulseView() {
                     {pulseConfig.teams.length === 0 && (
                       <div className="sf-jp-empty">No teams yet — add one below.</div>
                     )}
-                    {pulseConfig.teams.map((t) => (
+                    {pulseConfig.teams.length > 0 && pulseConfig.teams.filter((t) => !hideInactive || t.active !== false).length === 0 && (
+                      <div className="sf-jp-empty">All teams are inactive — uncheck "hide inactive" to see them.</div>
+                    )}
+                    {pulseConfig.teams
+                      .filter((t) => !hideInactive || t.active !== false)
+                      .map((t) => (
                       <div
                         className={
                           "sf-tp-cfg-row" +
+                          (t.active === false ? " inactive" : "") +
                           (pulseDragId === t.id ? " dragging" : "") +
                           (pulseDropBeforeId === t.id && pulseDragId && pulseDragId !== t.id ? " drop-before" : "")
                         }
@@ -569,6 +587,14 @@ export function PulseView() {
                           </>
                         ) : (
                           <>
+                            <input
+                              type="checkbox"
+                              className="sf-tp-active-cb"
+                              checked={t.active !== false}
+                              onChange={(e) => updatePulseTeam(t.id, { active: e.target.checked })}
+                              title={t.active !== false ? "Active — fetched on refresh" : "Inactive — skipped on refresh"}
+                              aria-label="Active"
+                            />
                             <span className="sf-tp-cfg-name">{t.name}</span>
                             <span className="sf-tp-cfg-def">
                               {t.source === "board"
@@ -693,9 +719,11 @@ export function PulseView() {
 
                   {pulseConfig.teams.length === 0 ? (
                     <div className="sf-jp-empty">Add a team above, then refresh.</div>
+                  ) : activeTeams.length === 0 ? (
+                    <div className="sf-jp-empty">No active teams — toggle one on above.</div>
                   ) : (
                     <div className="sf-tp-grid">
-                      {pulseConfig.teams.map((team) => {
+                      {activeTeams.map((team) => {
                         const d = pulseData[team.id];
                         return (
                           <div className="sf-tp-card" key={team.id}>

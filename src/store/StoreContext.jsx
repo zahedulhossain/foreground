@@ -411,7 +411,8 @@ export function StoreProvider({ children }) {
     setPulseLoading(true);
     const usePoints = pulseConfig.progressUnit === "points";
     const next = {};
-    for (const team of pulseConfig.teams) {
+    // Only fetch active teams (active === false means paused).
+    for (const team of pulseConfig.teams.filter((t) => t.active !== false)) {
       try {
         // Each team may override the story-points field; fall back to global.
         const fieldId = team.pointsFieldId || pulseConfig.pointsFieldId;

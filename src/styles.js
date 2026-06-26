@@ -161,6 +161,9 @@ export const styles = `
 .sf-tp-cfg-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 0; border-bottom:1px solid var(--line); transition:opacity .12s ease; }
 .sf-tp-cfg-row:last-child{ border-bottom:0; }
 .sf-tp-cfg-row.dragging{ opacity:.4; }
+.sf-tp-cfg-row.inactive{ opacity:.5; }
+.sf-tp-cfg-row.inactive .sf-tp-cfg-name{ text-decoration:line-through; }
+.sf-tp-active-cb{ accent-color:var(--accent); cursor:pointer; flex:0 0 auto; width:15px; height:15px; }
 .sf-tp-cfg-row.drop-before{ box-shadow:inset 0 2px 0 var(--accent); }
 .sf-tp-cfg-grip{ flex:0 0 auto; color:var(--ink-faint); font-size:12px; cursor:grab; user-select:none; letter-spacing:-1px; line-height:1; }
 .sf-tp-cfg-grip:hover{ color:var(--ink-dim); }
