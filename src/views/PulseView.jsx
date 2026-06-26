@@ -9,9 +9,19 @@ import { useStore } from "../store/StoreContext.jsx";
 
 export function PulseView() {
   const {
-    dragId, jiraConfigured, loadPulseBoards, loadPulseFields, loadPulseStatuses, palette, persistPulseConfig, pulseAllFields, pulseBoards, pulseConfig, pulseData, pulseDraft, pulseDragId, pulseDropBeforeId, pulseFieldHint, pulseLastRun, pulseLoading, pulsePointSearch, pulseStatusOpen, pulseStatuses, refreshPulse, setPulseDraft, setPulseDragId, setPulseDropBeforeId, setPulsePointSearch, setPulseStatusOpen, setView, settings, teams, view, windowLabel,
+    dragId, jiraConfigured, jiraCreds, loadPulseBoards, loadPulseFields, loadPulseStatuses, palette, persistPulseConfig, pulseAllFields, pulseBoards, pulseConfig, pulseData, pulseDraft, pulseDragId, pulseDropBeforeId, pulseFieldHint, pulseLastRun, pulseLoading, pulsePointSearch, pulseStatusOpen, pulseStatuses, refreshPulse, setPulseDraft, setPulseDragId, setPulseDropBeforeId, setPulsePointSearch, setPulseStatusOpen, setView, settings, teams, view, windowLabel,
   } = useStore();
     const usePoints = pulseConfig.progressUnit === "points";
+    // Drill-down drawer selection: { teamId, teamName, bucket } | null.
+    const [drawer, setDrawer] = React.useState(null);
+    React.useEffect(() => {
+      if (!drawer) return;
+      const onKey = (e) => { if (e.key === "Escape") setDrawer(null); };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, [drawer]);
+    const jiraBase = (jiraCreds.baseUrl || "").replace(/\/+$/, "");
+    const bucketLabel = { new: "To do", indeterminate: "In progress", done: "Done" };
     const addPulseTeam = () => {
       const name = pulseDraft.name.trim();
       if (!name) return;
@@ -61,6 +71,55 @@ export function PulseView() {
       <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
         <style>{styles}</style>
         {palette}
+        {drawer && (() => {
+          const data = pulseData[drawer.teamId];
+          const rows = (data && data.byBucket && data.byBucket[drawer.bucket]) || [];
+          const sorted = [...rows].sort((a, b) =>
+            usePoints ? (b.points - a.points) : String(a.key).localeCompare(String(b.key))
+          );
+          const ptsSum = rows.reduce((s, r) => s + (r.points || 0), 0);
+          return (
+            <div className="sf-dw-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setDrawer(null); }}>
+              <div className="sf-dw">
+                <div className="sf-dw-head">
+                  <div>
+                    <div className="sf-dw-title">{drawer.teamName} · {bucketLabel[drawer.bucket]}</div>
+                    <div className="sf-dw-sub">
+                      {rows.length} issue{rows.length === 1 ? "" : "s"}{usePoints ? ` · ${ptsSum} pts` : ""}
+                      {drawer.bucket === "done" ? ` · resolved in ${windowLabel()}` : ""}
+                    </div>
+                  </div>
+                  <button className="sf-dw-close" onClick={() => setDrawer(null)} title="Close (Esc)">✕</button>
+                </div>
+                <div className="sf-dw-list">
+                  {sorted.length === 0 ? (
+                    <div className="sf-dw-empty">No issues in this bucket.</div>
+                  ) : sorted.map((r) => (
+                    <a
+                      key={r.key}
+                      className="sf-dw-row"
+                      href={jiraBase ? `${jiraBase}/browse/${r.key}` : "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => { if (!jiraBase) e.preventDefault(); }}
+                    >
+                      <span className={"sf-dw-dot cat-" + (r.statusCategory || "new")} />
+                      <div className="sf-dw-body">
+                        <span className="sf-dw-key">{r.key}</span>
+                        <div className="sf-dw-summary">{r.summary || "(no summary)"}</div>
+                        <div className="sf-dw-meta">
+                          {r.status || "—"}
+                          {r.assignee ? ` · ${r.assignee}` : " · Unassigned"}
+                          {usePoints && r.points ? ` · ${r.points} pts` : ""}
+                        </div>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
           <div className="sf-wrap">
@@ -445,17 +504,40 @@ export function PulseView() {
                                 {(() => {
                                   const total = d.statusCounts.new + d.statusCounts.indeterminate + d.statusCounts.done || 1;
                                   const pct = (n) => `${(n / total) * 100}%`;
+                                  const open = (bucket) => {
+                                    if (!d.statusCounts[bucket]) return;
+                                    setDrawer({ teamId: team.id, teamName: team.name, bucket });
+                                  };
+                                  const seg = (bucket) => {
+                                    const n = d.statusCounts[bucket];
+                                    return (
+                                      <div
+                                        className={"sf-tp-seg " + bucket + (n ? " clickable" : "")}
+                                        style={{ width: pct(n) }}
+                                        onClick={() => open(bucket)}
+                                        title={n ? `${n} — click to list` : ""}
+                                      />
+                                    );
+                                  };
+                                  const lg = (bucket, label) => {
+                                    const n = d.statusCounts[bucket];
+                                    return n ? (
+                                      <span className="lg" onClick={() => open(bucket)}>{label} {n}</span>
+                                    ) : (
+                                      <span>{label} {n}</span>
+                                    );
+                                  };
                                   return (
                                     <>
                                       <div className="sf-tp-statusbar">
-                                        <div className="sf-tp-seg new" style={{ width: pct(d.statusCounts.new) }} />
-                                        <div className="sf-tp-seg indeterminate" style={{ width: pct(d.statusCounts.indeterminate) }} />
-                                        <div className="sf-tp-seg done" style={{ width: pct(d.statusCounts.done) }} />
+                                        {seg("new")}
+                                        {seg("indeterminate")}
+                                        {seg("done")}
                                       </div>
                                       <div className="sf-tp-legend">
-                                        <span>To do {d.statusCounts.new}</span>
-                                        <span>In progress {d.statusCounts.indeterminate}</span>
-                                        <span>Done {d.statusCounts.done}</span>
+                                        {lg("new", "To do")}
+                                        {lg("indeterminate", "In progress")}
+                                        {lg("done", "Done")}
                                       </div>
                                     </>
                                   );

@@ -416,7 +416,7 @@ export function StoreProvider({ children }) {
         // Each team may override the story-points field; fall back to global.
         const fieldId = team.pointsFieldId || pulseConfig.pointsFieldId;
         const pts = (it) => pointsOfPure(it, fieldId);
-        const fields = ["status", "assignee", ...(usePoints && fieldId ? [fieldId] : [])];
+        const fields = ["status", "assignee", "summary", ...(usePoints && fieldId ? [fieldId] : [])];
         let issues;
         let sprint = null;
         if (team.source === "board" && team.boardId) {

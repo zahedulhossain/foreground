@@ -59,9 +59,19 @@ export function aggregateTeam(issues, opts) {
   const open = issues.filter((it) => bucket(it) !== "done");
   const doneRecent = issues.filter((it) => bucket(it) === "done");
   const statusCounts = { new: 0, indeterminate: 0, done: 0 };
+  // Slim per-bucket issue lists for the drill-down drawer.
+  const byBucket = { new: [], indeterminate: [], done: [] };
   issues.forEach((it) => {
     const c = bucket(it);
     statusCounts[c] = (statusCounts[c] || 0) + 1;
+    (byBucket[c] || (byBucket[c] = [])).push({
+      key: it.key,
+      summary: it.fields ? it.fields.summary : null,
+      status: it.status,
+      statusCategory: it.statusCategory,
+      assignee: it.assignee ? it.assignee.displayName : null,
+      points: pts(it),
+    });
   });
   const byPerson = new Map();
   open.forEach((it) => {
@@ -81,5 +91,6 @@ export function aggregateTeam(issues, opts) {
     donePoints: doneRecent.reduce((s, it) => s + pts(it), 0),
     statusCounts,
     assignees,
+    byBucket,
   };
 }
