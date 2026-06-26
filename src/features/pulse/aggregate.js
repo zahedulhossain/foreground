@@ -51,6 +51,78 @@ export function statusBucket(issue, statusMap) {
 
 // Aggregate a flat issue list into the per-team shape the card renders.
 //   opts = { usePoints, pointsFieldId, statusMap }
+// ── KPI evaluation (point-in-time) ─────────────────────────────────────────
+// Higher-is-better status with a 10% at-risk band.
+function geStatus(actual, target) {
+  if (actual >= target) return "met";
+  if (actual >= target * 0.9) return "at-risk";
+  return "missed";
+}
+
+// In-progress load per person, from the indeterminate bucket.
+export function perPersonWip(d, usePoints) {
+  const map = new Map();
+  ((d.byBucket && d.byBucket.indeterminate) || []).forEach((it) => {
+    const name = it.assignee || "Unassigned";
+    const cur = map.get(name) || { name, value: 0 };
+    cur.value += usePoints ? (it.points || 0) : 1;
+    map.set(name, cur);
+  });
+  return Array.from(map.values()).sort((a, b) => b.value - a.value);
+}
+
+// Evaluate the enabled KPIs for one team's aggregated data. Pure.
+export function evaluateTeamKpis(d, targets, usePoints) {
+  const out = [];
+  if (!d || d.error) return out;
+  const t = targets || {};
+
+  if (t.throughput && t.throughput.enabled) {
+    const actual = usePoints ? d.donePoints : d.doneCount;
+    out.push({ key: "throughput", label: "Throughput", scope: "team",
+      actual, target: t.throughput.value, unit: usePoints ? " pts" : "",
+      status: geStatus(actual, t.throughput.value) });
+  }
+
+  if (t.sprintCompletion && t.sprintCompletion.enabled) {
+    if (d.sprint && d.sprint.committed) {
+      const pct = Math.round((d.sprint.done / d.sprint.committed) * 100);
+      out.push({ key: "sprintCompletion", label: "Sprint completion", scope: "team",
+        actual: pct, target: t.sprintCompletion.value, unit: "%",
+        status: geStatus(pct, t.sprintCompletion.value) });
+    } else {
+      out.push({ key: "sprintCompletion", label: "Sprint completion", scope: "team",
+        actual: null, target: t.sprintCompletion.value, unit: "%", status: "na" });
+    }
+  }
+
+  if (t.wip && t.wip.enabled) {
+    const lim = t.wip.value;
+    const people = perPersonWip(d, usePoints);
+    const breaches = people.filter((p) => p.value > lim);
+    const near = people.filter((p) => p.value <= lim && p.value > lim * 0.9);
+    out.push({ key: "wip", label: "WIP / person", scope: "person",
+      target: lim, unit: usePoints ? " pts" : "",
+      status: breaches.length ? "missed" : near.length ? "at-risk" : "met",
+      breaches });
+  }
+
+  if (t.loadBalance && t.loadBalance.enabled) {
+    const lim = t.loadBalance.value;
+    const loads = (d.assignees || []).map((a) => ({ name: a.name, load: usePoints ? a.points : a.count }));
+    const total = loads.reduce((s, x) => s + x.load, 0) || 1;
+    const shares = loads.map((x) => ({ name: x.name, pct: Math.round((x.load / total) * 100) }));
+    const breaches = shares.filter((s) => s.pct > lim);
+    const near = shares.filter((s) => s.pct <= lim && s.pct > lim * 0.9);
+    out.push({ key: "loadBalance", label: "Load balance", scope: "person",
+      target: lim, unit: "%",
+      status: breaches.length ? "missed" : near.length ? "at-risk" : "met",
+      breaches: breaches.map((b) => ({ name: b.name, value: b.pct })) });
+  }
+
+  return out;
+}
+
 export function aggregateTeam(issues, opts) {
   const { usePoints, pointsFieldId, statusMap } = opts;
   const bucket = (it) => statusBucket(it, statusMap);

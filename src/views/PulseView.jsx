@@ -6,6 +6,7 @@ import { uid } from "../lib/ids.js";
 import { styles } from "../styles.js";
 import { rootClass } from "../lib/theme.js";
 import { Sidebar } from "../components/Sidebar.jsx";
+import { evaluateTeamKpis } from "../features/pulse/aggregate.js";
 import { useStore } from "../store/StoreContext.jsx";
 
 export function PulseView() {
@@ -13,6 +14,7 @@ export function PulseView() {
     dragId, jiraConfigured, jiraCreds, loadPulseBoards, loadPulseFields, loadPulseStatuses, palette, persistPulseConfig, pulseAllFields, pulseBoards, pulseConfig, pulseData, pulseDraft, pulseDragId, pulseDropBeforeId, pulseFieldHint, pulseLastRun, pulseLoading, pulsePointSearch, pulseStatusOpen, pulseStatuses, refreshPulse, setPulseDraft, setPulseDragId, setPulseDropBeforeId, setPulsePointSearch, setPulseStatusOpen, setView, settings, teams, view, windowLabel,
   } = useStore();
     const usePoints = pulseConfig.progressUnit === "points";
+    const [pulseTab, setPulseTab] = React.useState("pulse"); // pulse | kpis
     // Drill-down drawer selection: { teamId, teamName, bucket } | null.
     const [drawer, setDrawer] = React.useState(null);
     React.useEffect(() => {
@@ -93,6 +95,106 @@ export function PulseView() {
       )
     );
 
+    // ── KPIs tab ──────────────────────────────────────────────────────────
+    const kpiTargets = pulseConfig.kpiTargets || {};
+    const updateKpiTarget = (key, patch) =>
+      persistPulseConfig({
+        ...pulseConfig,
+        kpiTargets: { ...kpiTargets, [key]: { ...(kpiTargets[key] || {}), ...patch } },
+      });
+    const KPI_DEFS = [
+      { key: "throughput", label: "Throughput", hint: "Done in window/sprint ≥ target", unit: usePoints ? "pts" : "issues" },
+      { key: "wip", label: "WIP / person", hint: "In-progress per person ≤ target", unit: usePoints ? "pts" : "issues" },
+      { key: "sprintCompletion", label: "Sprint completion", hint: "Done ÷ committed ≥ target", unit: "%" },
+      { key: "loadBalance", label: "Load balance", hint: "Top person's share of open load ≤ target", unit: "%" },
+    ];
+    const anyKpiEnabled = KPI_DEFS.some((k) => kpiTargets[k.key] && kpiTargets[k.key].enabled);
+
+    const renderKpis = () => (
+      <>
+        <div className="sf-jp-section">
+          <div className="sf-jp-head">
+            <div>
+              <div className="sf-jp-title">KPI targets</div>
+              <div className="sf-jp-sub">Point-in-time, evaluated from the last refresh. Enable and set a target for each.</div>
+            </div>
+            <button className="sf-set-btn" onClick={refreshPulse} disabled={pulseLoading || pulseConfig.teams.length === 0}>
+              {pulseLoading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+          <div className="sf-jp-card">
+            {KPI_DEFS.map((k) => {
+              const t = kpiTargets[k.key] || { enabled: false, value: 0 };
+              return (
+                <div className="sf-kpi-cfg-row" key={k.key}>
+                  <label className="sf-tp-asis" style={{ flex: "0 0 auto" }}>
+                    <input type="checkbox" checked={!!t.enabled} onChange={(e) => updateKpiTarget(k.key, { enabled: e.target.checked })} />
+                  </label>
+                  <span className="sf-kpi-cfg-label">{k.label}</span>
+                  <span className="sf-kpi-cfg-hint">{k.hint}</span>
+                  <input
+                    className="sf-tp-status-sel"
+                    type="number"
+                    style={{ width: 76, flex: "0 0 auto" }}
+                    value={t.value}
+                    onChange={(e) => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n)) updateKpiTarget(k.key, { value: n }); }}
+                  />
+                  <span className="sf-kpi-cfg-unit">{k.unit}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="sf-jp-section">
+          <div className="sf-jp-title">By team</div>
+          {pulseConfig.teams.length === 0 ? (
+            <div className="sf-jp-empty">Add teams on the Pulse tab first.</div>
+          ) : !anyKpiEnabled ? (
+            <div className="sf-jp-empty">Enable a KPI above to see status.</div>
+          ) : (
+            <div className="sf-tp-grid">
+              {pulseConfig.teams.map((team) => {
+                const d = pulseData[team.id];
+                const evals = d && !d.error ? evaluateTeamKpis(d, kpiTargets, usePoints) : [];
+                return (
+                  <div className="sf-tp-card" key={team.id}>
+                    <div className="sf-tp-card-head"><span className="sf-tp-name">{team.name}</span></div>
+                    {!d ? (
+                      <div className="sf-jp-empty">Refresh to load.</div>
+                    ) : d.error ? (
+                      <div className="sf-tp-err">{d.error}</div>
+                    ) : evals.length === 0 ? (
+                      <div className="sf-jp-empty">No KPIs enabled.</div>
+                    ) : (
+                      <>
+                        {evals.map((ev) => (
+                          <div className="sf-kpi-row" key={ev.key}>
+                            <span className={"sf-kpi-dot " + ev.status} />
+                            <span className="sf-kpi-name">{ev.label}</span>
+                            <span className="sf-kpi-val">
+                              {ev.scope === "team"
+                                ? (ev.status === "na" ? "n/a" : `${ev.actual}${ev.unit} / ${ev.target}${ev.unit}`)
+                                : (ev.breaches.length ? `${ev.breaches.length} over ${ev.target}${ev.unit}` : `all ≤ ${ev.target}${ev.unit}`)}
+                            </span>
+                          </div>
+                        ))}
+                        {evals.filter((e) => e.scope === "person" && e.breaches.length).map((ev) => (
+                          <div className="sf-kpi-breach" key={ev.key + "-b"}>
+                            {ev.label}: {ev.breaches.map((b) => `${b.name} (${b.value}${ev.unit})`).join(", ")}
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </>
+    );
+
     return (
       <div className={rootClass(settings)}>
         <style>{styles}</style>
@@ -168,7 +270,7 @@ export function PulseView() {
               </div>
             ) : (
               <>
-                {/* Config */}
+                {/* Tracked teams — shared by both tabs */}
                 <div className="sf-jp-section">
                   <div className="sf-jp-head">
                     <div>
@@ -562,7 +664,18 @@ export function PulseView() {
                   </div>
                 </div>
 
-                {/* Pulse */}
+                <div className="sf-tp-tabs">
+                  <button
+                    className={"sf-tp-tab" + (pulseTab === "pulse" ? " active" : "")}
+                    onClick={() => setPulseTab("pulse")}
+                  >Pulse</button>
+                  <button
+                    className={"sf-tp-tab" + (pulseTab === "kpis" ? " active" : "")}
+                    onClick={() => setPulseTab("kpis")}
+                  >KPIs</button>
+                </div>
+
+                {pulseTab === "kpis" ? renderKpis() : (
                 <div className="sf-jp-section">
                   <div className="sf-jp-head">
                     <div>
@@ -686,6 +799,7 @@ export function PulseView() {
                     </div>
                   )}
                 </div>
+                )}
               </>
             )}
           </div>

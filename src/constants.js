@@ -35,6 +35,15 @@ export const DEFAULT_PULSE = {
   progressUnit: "count",
   pointsFieldId: null,
   statusMap: {},
+  // KPI targets (point-in-time). Disabled by default; comparator/direction is
+  // fixed per KPI. throughput/sprintCompletion are team-level (≥ target);
+  // wip/loadBalance are per-person rules (≤ target), loadBalance in percent.
+  kpiTargets: {
+    throughput: { enabled: false, value: 10 },
+    wip: { enabled: false, value: 5 },
+    sprintCompletion: { enabled: false, value: 80 },
+    loadBalance: { enabled: false, value: 40 },
+  },
 };
 
 // Default JQL for the Jira import picker.
