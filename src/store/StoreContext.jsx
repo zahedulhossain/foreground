@@ -436,7 +436,10 @@ export function StoreProvider({ children }) {
             }
           }
         } else if (team.source === "jql" && team.jql) {
-          issues = await window.jira.teamIssues(jiraCreds, wrapJql(team.jql), fields, 400);
+          // rawJql teams are self-scoped — run verbatim, don't append the
+          // done-window (which would clip a query that already bounds time).
+          const jql = team.rawJql ? team.jql : wrapJql(team.jql);
+          issues = await window.jira.teamIssues(jiraCreds, jql, fields, 400);
         } else {
           next[team.id] = { error: "Team has no board or JQL configured." };
           continue;

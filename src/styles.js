@@ -180,6 +180,9 @@ export const styles = `
 .sf-tp-status-def{ font-size:10.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; flex:0 0 auto; }
 .sf-tp-status-sel{ flex:0 0 auto; background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:5px 8px; font-size:12px; font-family:inherit; outline:none; }
 .sf-tp-status-sel.overridden{ border-color:var(--accent); }
+.sf-tp-asis{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--ink-dim); cursor:pointer; user-select:none; flex:0 0 auto; }
+.sf-tp-asis input{ accent-color:var(--accent); cursor:pointer; }
+.sf-tp-asis-tag{ color:var(--accent); font-family:'IBM Plex Mono',monospace; }
 
 .sf-tp-seg, .sf-tp-legend span{ cursor:default; }
 .sf-tp-seg.clickable{ cursor:pointer; }

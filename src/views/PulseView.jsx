@@ -28,7 +28,7 @@ export function PulseView() {
 
     const startEditTeam = (t) => {
       setEditingTeamId(t.id);
-      setEditDraft({ name: t.name, source: t.source, boardId: t.boardId ? String(t.boardId) : "", jql: t.jql || "" });
+      setEditDraft({ name: t.name, source: t.source, boardId: t.boardId ? String(t.boardId) : "", jql: t.jql || "", rawJql: !!t.rawJql });
     };
     const cancelEditTeam = () => { setEditingTeamId(null); };
     const saveEditTeam = (t) => {
@@ -41,7 +41,7 @@ export function PulseView() {
         patch = { name, source: "board", boardId: Number(editDraft.boardId), boardType: b ? b.type : t.boardType, jql: undefined };
       } else {
         if (!editDraft.jql.trim()) return;
-        patch = { name, source: "jql", jql: editDraft.jql.trim(), boardId: undefined, boardType: undefined };
+        patch = { name, source: "jql", jql: editDraft.jql.trim(), rawJql: !!editDraft.rawJql, boardId: undefined, boardType: undefined };
       }
       updatePulseTeam(t.id, patch);
       setEditingTeamId(null);
@@ -58,10 +58,10 @@ export function PulseView() {
         team = { id: uid(), name, source: "board", boardId: Number(pulseDraft.boardId), boardType: b ? b.type : null };
       } else {
         if (!pulseDraft.jql.trim()) return;
-        team = { id: uid(), name, source: "jql", jql: pulseDraft.jql.trim() };
+        team = { id: uid(), name, source: "jql", jql: pulseDraft.jql.trim(), rawJql: !!pulseDraft.rawJql };
       }
       persistPulseConfig({ ...pulseConfig, teams: [...pulseConfig.teams, team] });
-      setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "" });
+      setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "", rawJql: false });
     };
     const removePulseTeam = (id) =>
       persistPulseConfig({ ...pulseConfig, teams: pulseConfig.teams.filter((t) => t.id !== id) });
@@ -112,7 +112,7 @@ export function PulseView() {
                     <div className="sf-dw-title">{drawer.teamName} · {bucketLabel[drawer.bucket]}</div>
                     <div className="sf-dw-sub">
                       {rows.length} issue{rows.length === 1 ? "" : "s"}{usePoints ? ` · ${ptsSum} pts` : ""}
-                      {drawer.bucket === "done" ? ` · resolved in ${windowLabel()}` : ""}
+                      {drawer.bucket === "done" && !drawer.raw ? ` · resolved in ${windowLabel()}` : ""}
                     </div>
                   </div>
                   <button className="sf-dw-close" onClick={() => setDrawer(null)} title="Close (Esc)">✕</button>
@@ -444,13 +444,23 @@ export function PulseView() {
                                 <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
                               )
                             ) : (
-                              <input
-                                placeholder="JQL — e.g. project = AUTH"
-                                value={editDraft.jql}
-                                onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
-                                style={{ flex: "1 1 220px", fontFamily: "'IBM Plex Mono',monospace" }}
-                              />
+                              <>
+                                <input
+                                  placeholder="JQL — e.g. project = AUTH"
+                                  value={editDraft.jql}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
+                                  style={{ flex: "1 1 220px", fontFamily: "'IBM Plex Mono',monospace" }}
+                                />
+                                <label className="sf-tp-asis" title="Run this JQL verbatim — don't append the done-window">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!editDraft.rawJql}
+                                    onChange={(e) => setEditDraft((d) => ({ ...d, rawJql: e.target.checked }))}
+                                  />
+                                  as-is
+                                </label>
+                              </>
                             )}
                             <button className="sf-mini" onClick={() => saveEditTeam(t)} title="Save">✓</button>
                             <button className="sf-mini" onClick={cancelEditTeam} title="Cancel">✕</button>
@@ -462,6 +472,9 @@ export function PulseView() {
                               {t.source === "board"
                                 ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
                                 : t.jql}
+                              {t.source === "jql" && t.rawJql && (
+                                <span className="sf-tp-asis-tag" title="Runs verbatim — done-window not applied"> · as-is</span>
+                              )}
                             </span>
                             {usePoints && (
                               pulseAllFields ? (
@@ -527,12 +540,22 @@ export function PulseView() {
                           <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
                         )
                       ) : (
-                        <input
-                          placeholder="JQL — e.g. project = AUTH"
-                          value={pulseDraft.jql}
-                          onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
-                          style={{ flex: "1 1 260px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5 }}
-                        />
+                        <>
+                          <input
+                            placeholder="JQL — e.g. project = AUTH"
+                            value={pulseDraft.jql}
+                            onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
+                            style={{ flex: "1 1 260px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5 }}
+                          />
+                          <label className="sf-tp-asis" title="Run this JQL verbatim — don't append the done-window">
+                            <input
+                              type="checkbox"
+                              checked={!!pulseDraft.rawJql}
+                              onChange={(e) => setPulseDraft((d) => ({ ...d, rawJql: e.target.checked }))}
+                            />
+                            as-is
+                          </label>
+                        </>
                       )}
                       <button className="sf-btn" onClick={addPulseTeam} disabled={!pulseDraft.name.trim()}>Add team</button>
                     </div>
@@ -581,7 +604,7 @@ export function PulseView() {
                                   const pct = (n) => `${(n / total) * 100}%`;
                                   const open = (bucket) => {
                                     if (!d.statusCounts[bucket]) return;
-                                    setDrawer({ teamId: team.id, teamName: team.name, bucket });
+                                    setDrawer({ teamId: team.id, teamName: team.name, bucket, raw: !!team.rawJql });
                                   };
                                   const seg = (bucket) => {
                                     const n = d.statusCounts[bucket];
@@ -653,7 +676,7 @@ export function PulseView() {
 
                                 <div className="sf-tp-foot">
                                   <span>{usePoints ? `${d.openPoints} pts open` : `${d.openCount} open`}</span>
-                                  <span>{usePoints ? `${d.donePoints} pts` : `${d.doneCount}`} done · {windowLabel()}</span>
+                                  <span>{usePoints ? `${d.donePoints} pts` : `${d.doneCount}`} done{team.rawJql ? "" : ` · ${windowLabel()}`}</span>
                                 </div>
                               </>
                             )}
