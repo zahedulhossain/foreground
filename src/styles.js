@@ -154,8 +154,10 @@ export const styles = `
 .sf-tp-cfg-name{ font-size:13px; font-weight:500; min-width:120px; }
 .sf-tp-cfg-def{ font-size:11.5px; color:var(--ink-faint); font-family:'IBM Plex Mono',monospace; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sf-tp-addbar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
-.sf-tp-addbar input, .sf-tp-addbar select{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
-.sf-tp-addbar input:focus, .sf-tp-addbar select:focus{ border-color:var(--accent); }
+.sf-tp-addbar input, .sf-tp-addbar select,
+.sf-tp-cfg-row input, .sf-tp-cfg-row select{ background:var(--panel-2); border:1px solid var(--line); color:var(--ink); border-radius:8px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
+.sf-tp-addbar input:focus, .sf-tp-addbar select:focus,
+.sf-tp-cfg-row input:focus, .sf-tp-cfg-row select:focus{ border-color:var(--accent); }
 .sf-tp-controls{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0 12px; }
 .sf-tp-window{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; min-height:36px; }
 .sf-tp-statusmap{ margin-top:8px; max-height:300px; overflow-y:auto; border:1px solid var(--line); border-radius:10px; padding:6px 10px; }

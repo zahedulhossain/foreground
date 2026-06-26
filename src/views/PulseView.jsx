@@ -20,6 +20,31 @@ export function PulseView() {
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     }, [drawer]);
+
+    // Per-row inline editing state.
+    const [editingTeamId, setEditingTeamId] = React.useState(null);
+    const [editDraft, setEditDraft] = React.useState({ name: "", source: "jql", boardId: "", jql: "" });
+
+    const startEditTeam = (t) => {
+      setEditingTeamId(t.id);
+      setEditDraft({ name: t.name, source: t.source, boardId: t.boardId ? String(t.boardId) : "", jql: t.jql || "" });
+    };
+    const cancelEditTeam = () => { setEditingTeamId(null); };
+    const saveEditTeam = (t) => {
+      const name = editDraft.name.trim();
+      if (!name) return;
+      let patch;
+      if (editDraft.source === "board") {
+        if (!editDraft.boardId) return;
+        const b = (pulseBoards || []).find((x) => String(x.id) === String(editDraft.boardId));
+        patch = { name, source: "board", boardId: Number(editDraft.boardId), boardType: b ? b.type : t.boardType, jql: undefined };
+      } else {
+        if (!editDraft.jql.trim()) return;
+        patch = { name, source: "jql", jql: editDraft.jql.trim(), boardId: undefined, boardType: undefined };
+      }
+      updatePulseTeam(t.id, patch);
+      setEditingTeamId(null);
+    };
     const jiraBase = (jiraCreds.baseUrl || "").replace(/\/+$/, "");
     const bucketLabel = { new: "To do", indeterminate: "In progress", done: "Done" };
     const addPulseTeam = () => {
@@ -367,8 +392,8 @@ export function PulseView() {
                           (pulseDropBeforeId === t.id && pulseDragId && pulseDragId !== t.id ? " drop-before" : "")
                         }
                         key={t.id}
-                        draggable
-                        onDragStart={(e) => { setPulseDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+                        draggable={editingTeamId !== t.id}
+                        onDragStart={(e) => { if (editingTeamId === t.id) { e.preventDefault(); return; } setPulseDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
                         onDragEnd={() => { setPulseDragId(null); setPulseDropBeforeId(null); }}
                         onDragOver={(e) => {
                           if (!pulseDragId || pulseDragId === t.id) return;
@@ -385,40 +410,89 @@ export function PulseView() {
                         }}
                       >
                         <span className="sf-tp-cfg-grip" title="Drag to reorder">⋮⋮</span>
-                        <span className="sf-tp-cfg-name">{t.name}</span>
-                        <span className="sf-tp-cfg-def">
-                          {t.source === "board"
-                            ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
-                            : t.jql}
-                        </span>
-                        {usePoints && (
-                          pulseAllFields ? (
-                            <select
-                              className="sf-tp-status-sel"
-                              style={{ flex: "0 0 auto", maxWidth: 200 }}
-                              value={t.pointsFieldId || ""}
-                              onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value || null })}
-                              title="Story-points field for this team"
-                            >
-                              <option value="">
-                                Points: default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
-                              </option>
-                              {pulseAllFields.map((f) => (
-                                <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
-                              ))}
-                            </select>
-                          ) : (
+                        {editingTeamId === t.id ? (
+                          <>
                             <input
-                              className="sf-tp-status-sel"
-                              style={{ flex: "0 0 auto", width: 160 }}
-                              placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
-                              value={t.pointsFieldId || ""}
-                              onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value.trim() || null })}
-                              title="Story-points field for this team (or load fields above to pick by name)"
+                              style={{ flex: "0 1 140px" }}
+                              value={editDraft.name}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                              placeholder="Team name"
+                              autoFocus
+                              onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
                             />
-                          )
+                            <select
+                              value={editDraft.source}
+                              onChange={(e) => setEditDraft((d) => ({ ...d, source: e.target.value }))}
+                            >
+                              <option value="board">Board</option>
+                              <option value="jql">JQL</option>
+                            </select>
+                            {editDraft.source === "board" ? (
+                              pulseBoards ? (
+                                <select
+                                  value={editDraft.boardId}
+                                  onChange={(e) => setEditDraft((d) => ({ ...d, boardId: e.target.value }))}
+                                  style={{ flex: "1 1 200px" }}
+                                >
+                                  <option value="">Select a board…</option>
+                                  {pulseBoards.map((b) => (
+                                    <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
+                              )
+                            ) : (
+                              <input
+                                placeholder="JQL — e.g. project = AUTH"
+                                value={editDraft.jql}
+                                onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
+                                style={{ flex: "1 1 220px", fontFamily: "'IBM Plex Mono',monospace" }}
+                              />
+                            )}
+                            <button className="sf-mini" onClick={() => saveEditTeam(t)} title="Save">✓</button>
+                            <button className="sf-mini" onClick={cancelEditTeam} title="Cancel">✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="sf-tp-cfg-name">{t.name}</span>
+                            <span className="sf-tp-cfg-def">
+                              {t.source === "board"
+                                ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
+                                : t.jql}
+                            </span>
+                            {usePoints && (
+                              pulseAllFields ? (
+                                <select
+                                  className="sf-tp-status-sel"
+                                  style={{ flex: "0 0 auto", maxWidth: 200 }}
+                                  value={t.pointsFieldId || ""}
+                                  onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value || null })}
+                                  title="Story-points field for this team"
+                                >
+                                  <option value="">
+                                    Points: default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
+                                  </option>
+                                  {pulseAllFields.map((f) => (
+                                    <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  className="sf-tp-status-sel"
+                                  style={{ flex: "0 0 auto", width: 160 }}
+                                  placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
+                                  value={t.pointsFieldId || ""}
+                                  onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value.trim() || null })}
+                                  title="Story-points field for this team (or load fields above to pick by name)"
+                                />
+                              )
+                            )}
+                            <button className="sf-mini" onClick={() => startEditTeam(t)} title="Edit">✎</button>
+                            <button className="sf-mini" onClick={() => removePulseTeam(t.id)} title="Remove">✕</button>
+                          </>
                         )}
-                        <button className="sf-mini" onClick={() => removePulseTeam(t.id)} title="Remove">✕</button>
                       </div>
                     ))}
 
