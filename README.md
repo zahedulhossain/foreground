@@ -20,6 +20,7 @@ Local-only by design. One JSON file, no account, no sync, no telemetry.
 - **Weekly review** — shipped in the last 7 days, longest-sitting open work, overdue items.
 - **Light / dark theme**, configurable.
 - **Optional Jira integration.** A dedicated page to import your open issues onto the board, keep linked tasks in sync, and spot drift (Done in Jira but open here, or vice versa). Or just paste a key like `PROJ-123` into a title for inline enrichment. Read-only; works with classic and scoped Atlassian API tokens.
+- **Team Pulse (beta, opt-in).** A Jira-backed page that tracks the load, progress, and per-person involvement across the teams you run. Map each team to a board (auto-detects Scrum/Kanban, shows sprint progress) or a raw JQL query. Toggle it on in Settings.
 - **JSON import / export** for backups or migrating between machines.
 
 ## Prerequisites
@@ -80,7 +81,18 @@ Foreground supports two Atlassian token types. Pick whichever your org allows.
 
 If your org uses corporate SSO for Atlassian, scoped tokens may be rejected by the org's authorization layer even with the right scopes — classic tokens often work where scoped tokens don't. The in-app Jira page has the full breakdown.
 
-Foreground only ever reads. It calls `GET /rest/api/3/issue/{key}` for enrichment, `GET /rest/api/3/search/jql` for import, plus a one-shot connection test. It never writes to Jira.
+Foreground only ever reads. It calls `GET /rest/api/3/issue/{key}` for enrichment, `GET /rest/api/3/search/jql` for import, the Agile API (`/rest/agile/1.0/board…`) for Team Pulse board/sprint data, plus a one-shot connection test. It never writes to Jira.
+
+### Team Pulse (beta)
+
+Enable it in **Settings → Team Pulse**; a new sidebar icon appears. On the page you define the teams you oversee (separate from task tags), each mapped to either a **board** or a **JQL** query, then hit Refresh to pull live data:
+
+- **Per-team status flow** — to-do / in-progress / done across open + recently-completed work.
+- **Per-person load** — who's carrying how many open issues (or story points), within each team.
+- **Sprint progress** — for board-mapped Scrum teams with an active sprint (committed vs done).
+- **Throughput** — what each team completed in a configurable done-window (default 14 days).
+
+Notes: board type / sprint data uses the **Agile API**, which needs `jira-software` scopes (`read:board-scope:jira-software`, `read:sprint:jira-software`) on a scoped token — without them, teams degrade to status-flow only. Story-points tracking needs the points field, which Foreground can auto-detect. Pulse is a load-balancing aid; treat per-person data accordingly.
 
 ## Keyboard shortcuts
 
