@@ -7,6 +7,15 @@ import { uid } from "../lib/ids.js";
 import { renderTitle } from "../lib/markdown.js";
 import { autoSize } from "../lib/dom.js";
 import { detectJira } from "../lib/jiraText.js";
+import {
+  doneClause as doneClausePure,
+  windowJql as windowJqlPure,
+  wrapJql as wrapJqlPure,
+  windowLabel as windowLabelPure,
+  pointsOf as pointsOfPure,
+  statusBucket as statusBucketPure,
+  aggregateTeam as aggregateTeamPure,
+} from "../features/pulse/aggregate.js";
 
 const StoreContext = createContext(null);
 export const useStore = () => useContext(StoreContext);
@@ -382,77 +391,20 @@ export function StoreProvider({ children }) {
   };
 
   // ── Team Pulse fetch + aggregation ───────────────────────────────────────
-  // The done-side clause: rolling "last N days" or a fixed from–to range.
-  // Range falls back to rolling if either date is missing.
-  const doneClause = () => {
-    const c = pulseConfig;
-    if (c.doneWindowMode === "range" && c.doneWindowFrom && c.doneWindowTo) {
-      // Quote dates; include the whole end day with an explicit time.
-      return `(resolutiondate >= "${c.doneWindowFrom}" AND resolutiondate <= "${c.doneWindowTo} 23:59")`;
-    }
-    return `resolutiondate >= -${c.doneWindowDays || 14}d`;
-  };
-  // Open work is always included; only the done side is windowed.
-  const windowJql = () => `(statusCategory != Done OR ${doneClause()})`;
-  const wrapJql = (raw) => {
-    const parts = String(raw || "").split(/order\s+by/i);
-    const base = parts[0].trim();
-    const order = parts[1] ? ` ORDER BY ${parts[1].trim()}` : "";
-    const body = base ? `(${base}) AND ${windowJql()}` : windowJql();
-    return body + order;
-  };
-  // Human label for the done window, shown on each card's footer.
-  const windowLabel = () => {
-    const c = pulseConfig;
-    if (c.doneWindowMode === "range" && c.doneWindowFrom && c.doneWindowTo) {
-      return `${c.doneWindowFrom}→${c.doneWindowTo}`;
-    }
-    return `${c.doneWindowDays || 14}d`;
-  };
-
-  const pointsOf = (issue) => {
-    const fid = pulseConfig.pointsFieldId;
-    if (!fid || !issue.fields) return 0;
-    const v = issue.fields[fid];
-    return typeof v === "number" ? v : 0;
-  };
-
-  // Classify an issue into a Pulse bucket: a per-status-name override if the
-  // user set one, otherwise the status's own Jira category.
-  const statusBucket = (issue) => {
-    const map = pulseConfig.statusMap || {};
-    return map[issue.status] || issue.statusCategory || "new";
-  };
-
-  // Aggregate a flat issue list into the per-team shape the card renders.
-  const aggregateTeam = (issues, usePoints) => {
-    const open = issues.filter((it) => statusBucket(it) !== "done");
-    const doneRecent = issues.filter((it) => statusBucket(it) === "done");
-    const statusCounts = { new: 0, indeterminate: 0, done: 0 };
-    issues.forEach((it) => {
-      const c = statusBucket(it);
-      statusCounts[c] = (statusCounts[c] || 0) + 1;
+  // Pure logic lives in features/pulse/aggregate.js; these are thin adapters
+  // that bind it to the current pulseConfig so call sites stay unchanged.
+  const doneClause = () => doneClausePure(pulseConfig);
+  const windowJql = () => windowJqlPure(pulseConfig);
+  const wrapJql = (raw) => wrapJqlPure(raw, pulseConfig);
+  const windowLabel = () => windowLabelPure(pulseConfig);
+  const pointsOf = (issue) => pointsOfPure(issue, pulseConfig.pointsFieldId);
+  const statusBucket = (issue) => statusBucketPure(issue, pulseConfig.statusMap);
+  const aggregateTeam = (issues, usePoints) =>
+    aggregateTeamPure(issues, {
+      usePoints,
+      pointsFieldId: pulseConfig.pointsFieldId,
+      statusMap: pulseConfig.statusMap,
     });
-    const byPerson = new Map();
-    open.forEach((it) => {
-      const name = it.assignee ? it.assignee.displayName : "Unassigned";
-      const cur = byPerson.get(name) || { name, count: 0, points: 0 };
-      cur.count += 1;
-      cur.points += pointsOf(it);
-      byPerson.set(name, cur);
-    });
-    const assignees = Array.from(byPerson.values()).sort((a, b) =>
-      usePoints ? b.points - a.points : b.count - a.count
-    );
-    return {
-      openCount: open.length,
-      openPoints: open.reduce((s, it) => s + pointsOf(it), 0),
-      doneCount: doneRecent.length,
-      donePoints: doneRecent.reduce((s, it) => s + pointsOf(it), 0),
-      statusCounts,
-      assignees,
-    };
-  };
 
   const refreshPulse = async () => {
     if (!jiraConfigured || pulseConfig.teams.length === 0) return;
