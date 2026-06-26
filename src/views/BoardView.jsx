@@ -4,6 +4,7 @@ import { renderTitle } from "../lib/markdown.js";
 import { autoSize } from "../lib/dom.js";
 import { uid } from "../lib/ids.js";
 import { styles } from "../styles.js";
+import { rootClass } from "../lib/theme.js";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { useStore } from "../store/StoreContext.jsx";
 
@@ -12,7 +13,7 @@ export function BoardView() {
     activeTasks, addInputRef, addTask, archive, archiveAllDone, balance, cancelEdit, cancelNotesEdit, cancelTeamEdit, clearFilters, commitEdit, commitNotesEdit, commitTeamEdit, doneNotArchivedCount, draft, draftBucket, draftTeam, dragId, dropBeforeId, dropBucket, editDraft, editNotesDraft, editTeamDraft, editingId, editingNotesId, editingTeamId, enrichWithJira, expandedNotes, filteredVisibleCount, filtersActive, flashTaskId, hideDone, jiraLoadingId, matchesFilters, maxBalance, moveTask, notesAutoExpanded, openMenu, palette, remove, saveState, searchInputRef, searchTerm, setDraft, setDraftBucket, setDraftTeam, setDragId, setDropBeforeId, setDropBucket, setEditDraft, setEditNotesDraft, setEditTeamDraft, setHideDone, setOpenMenu, setSearchTerm, setTasks, setView, settings, startEdit, startNotesEdit, startTeamEdit, tasks, teamColor, teamFilter, teams, today, toggleNotesExpanded, toggleTeamFilter, trimmedSearch, update, view,
   } = useStore();
   return (
-    <div className={"sf-root" + (settings.darkMode ? "" : " light")} onClick={() => setOpenMenu(null)}>
+    <div className={rootClass(settings)} onClick={() => setOpenMenu(null)}>
       <style>{styles}</style>
       {palette}
       <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />

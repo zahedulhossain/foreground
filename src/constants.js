@@ -11,7 +11,15 @@ export const STORAGE_KEY = "foreground:state:v1";
 export const JIRA_KEY = "foreground:jira:v1";
 export const PULSE_KEY = "foreground:pulse:v1";
 
-export const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true, teamPulse: false };
+export const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true, teamPulse: false, theme: "a" };
+
+// Selectable color themes. Each id maps to a `.sf-root.theme-{id}` CSS block in
+// styles.js (with a `.light` variant) and a team-chip palette below.
+export const THEMES = [
+  { id: "a", name: "Refined Sepia", desc: "Warm and familiar — cream on deep brown with an amber accent.", swatch: ["#262019", "#e3a44b", "#8aab6f"] },
+  { id: "b", name: "Cool Slate", desc: "Modern and crisp — neutral blue-grey surfaces with a clear blue accent.", swatch: ["#1c2029", "#5b9ee0", "#56b793"] },
+  { id: "c", name: "Charcoal + Teal", desc: "Calm and high-contrast — neutral charcoal with one bold teal accent.", swatch: ["#1f1f21", "#3fb8a6", "#7fb069"] },
+];
 
 // Team Pulse config: tracked teams + how to read progress.
 //   team = { id, name, source: "board" | "jql", boardId?, boardType?, jql? }
@@ -32,5 +40,11 @@ export const DEFAULT_PULSE = {
 // Default JQL for the Jira import picker.
 export const DEFAULT_JQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
 
-// Chip colors, cycled per team.
-export const PALETTE = ["#c8853b", "#7c9a6d", "#9a6d8e", "#5d8a9a", "#b5654d", "#8a7c5d"];
+// Chip colors, cycled per team — one palette per theme, harmonized with the
+// theme accent. PALETTE stays exported (default theme) for backward compat.
+export const TEAM_PALETTES = {
+  a: ["#d98f3d", "#7f9d6c", "#a06d92", "#5d8a9a", "#b5654d", "#8a7c5d"],
+  b: ["#5b9ee0", "#56b793", "#b079d6", "#e0a050", "#e07060", "#7d8694"],
+  c: ["#3fb8a6", "#e0a050", "#c07ad6", "#5b9ee0", "#e07a5f", "#8a8f9a"],
+};
+export const PALETTE = TEAM_PALETTES.a;

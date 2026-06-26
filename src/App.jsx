@@ -1,6 +1,7 @@
 import React from "react";
 import { StoreProvider, useStore } from "./store/StoreContext.jsx";
 import { styles } from "./styles.js";
+import { rootClass } from "./lib/theme.js";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { ReviewView } from "./views/ReviewView.jsx";
 import { ArchiveView } from "./views/ArchiveView.jsx";
@@ -16,7 +17,7 @@ function AppShell() {
 
   if (!loaded) {
     return (
-      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+      <div className={rootClass(settings)}>
         <style>{styles}</style>
         {palette}
         <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />

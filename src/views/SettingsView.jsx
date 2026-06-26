@@ -1,9 +1,10 @@
 import React from "react";
-import { BUCKETS, DEFAULT_JQL } from "../constants.js";
+import { BUCKETS, DEFAULT_JQL, THEMES } from "../constants.js";
 import { renderTitle } from "../lib/markdown.js";
 import { autoSize } from "../lib/dom.js";
 import { uid } from "../lib/ids.js";
 import { styles } from "../styles.js";
+import { rootClass } from "../lib/theme.js";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { useStore } from "../store/StoreContext.jsx";
 
@@ -12,7 +13,7 @@ export function SettingsView() {
     balance, exportData, fileInputRef, importData, ioStatus, jiraConfigured, palette, restore, saveState, setSettings, setView, settings, tasks, teams, view,
   } = useStore();
     return (
-      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+      <div className={rootClass(settings)}>
         <style>{styles}</style>
         {palette}
         <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
@@ -28,8 +29,8 @@ export function SettingsView() {
                 <div>
                   <div className="sf-set-label">Dark mode</div>
                   <div className="sf-set-desc">
-                    Warm dark by default. Switch to light if you'd rather work on a cream
-                    background.
+                    Dark by default. Switch to light if you'd rather work on a bright
+                    background — your chosen color theme applies to both.
                   </div>
                 </div>
                 <button
@@ -38,6 +39,38 @@ export function SettingsView() {
                   aria-pressed={settings.darkMode}
                   aria-label="Toggle dark mode"
                 />
+              </div>
+
+              <div className="sf-set-row">
+                <div style={{ flex: 1 }}>
+                  <div className="sf-set-label">Color theme</div>
+                  <div className="sf-set-desc">
+                    Pick the palette that suits you. Each theme has its own light
+                    variant — toggle dark mode above to switch.
+                  </div>
+                  <div className="sf-theme-opts">
+                    {THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className={"sf-theme-opt" + (settings.theme === t.id ? " active" : "")}
+                        onClick={() => setSettings((s) => ({ ...s, theme: t.id }))}
+                        aria-pressed={settings.theme === t.id}
+                      >
+                        <div className="sf-theme-swatch">
+                          {t.swatch.map((c, i) => (
+                            <span key={i} style={{ background: c }} />
+                          ))}
+                        </div>
+                        <div className="sf-theme-name">
+                          {t.name}
+                          <span className="sf-theme-dot" />
+                        </div>
+                        <div className="sf-theme-desc">{t.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="sf-set-row">
@@ -134,7 +167,7 @@ export function SettingsView() {
                 <div>
                   <div className="sf-set-label">
                     Jira integration{" "}
-                    {jiraConfigured && <span style={{ color: "#7c9a6d", fontSize: 11, marginLeft: 6 }}>● connected</span>}
+                    {jiraConfigured && <span style={{ color: "var(--success)", fontSize: 11, marginLeft: 6 }}>● connected</span>}
                   </div>
                   <div className="sf-set-desc">
                     Connect Jira to enrich pasted issue keys, import your open issues, and

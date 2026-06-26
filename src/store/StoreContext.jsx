@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import {
   BUCKETS, STORAGE_KEY, JIRA_KEY, PULSE_KEY,
-  DEFAULT_SETTINGS, DEFAULT_PULSE, DEFAULT_JQL, PALETTE,
+  DEFAULT_SETTINGS, DEFAULT_PULSE, DEFAULT_JQL, PALETTE, TEAM_PALETTES,
 } from "../constants.js";
 import { uid } from "../lib/ids.js";
 import { renderTitle } from "../lib/markdown.js";
@@ -524,10 +524,11 @@ export function StoreProvider({ children }) {
   const teamColor = useCallback(
     (name) => {
       if (!name) return "var(--ink-faint)";
+      const pal = TEAM_PALETTES[settings.theme] || PALETTE;
       const idx = teams.indexOf(name);
-      return PALETTE[(idx < 0 ? 0 : idx) % PALETTE.length];
+      return pal[(idx < 0 ? 0 : idx) % pal.length];
     },
-    [teams]
+    [teams, settings.theme]
   );
 
   const addTask = () => {

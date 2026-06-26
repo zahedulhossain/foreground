@@ -4,6 +4,7 @@ import { renderTitle } from "../lib/markdown.js";
 import { autoSize } from "../lib/dom.js";
 import { uid } from "../lib/ids.js";
 import { styles } from "../styles.js";
+import { rootClass } from "../lib/theme.js";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { useStore } from "../store/StoreContext.jsx";
 
@@ -35,7 +36,7 @@ export function JiraView() {
     const dotClass = (cat) => "sf-jp-statusdot cat-" + (cat || "new");
 
     return (
-      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+      <div className={rootClass(settings)}>
         <style>{styles}</style>
         {palette}
         <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
@@ -55,7 +56,7 @@ export function JiraView() {
               <div className="sf-jp-title">
                 Connection{" "}
                 {jiraConfigured && (
-                  <span style={{ color: "#7c9a6d", fontSize: 12, marginLeft: 6 }}>● connected</span>
+                  <span style={{ color: "var(--success)", fontSize: 12, marginLeft: 6 }}>● connected</span>
                 )}
               </div>
               <div className="sf-jp-sub">

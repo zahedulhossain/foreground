@@ -4,6 +4,7 @@ import { renderTitle } from "../lib/markdown.js";
 import { autoSize } from "../lib/dom.js";
 import { uid } from "../lib/ids.js";
 import { styles } from "../styles.js";
+import { rootClass } from "../lib/theme.js";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { useStore } from "../store/StoreContext.jsx";
 
@@ -93,7 +94,7 @@ export function PulseView() {
     );
 
     return (
-      <div className={"sf-root" + (settings.darkMode ? "" : " light")}>
+      <div className={rootClass(settings)}>
         <style>{styles}</style>
         {palette}
         {drawer && (() => {
