@@ -30,6 +30,12 @@ export function PulseView() {
     const removePulseTeam = (id) =>
       persistPulseConfig({ ...pulseConfig, teams: pulseConfig.teams.filter((t) => t.id !== id) });
 
+    const updatePulseTeam = (id, patch) =>
+      persistPulseConfig({
+        ...pulseConfig,
+        teams: pulseConfig.teams.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      });
+
     // Reorder teams. beforeId === null appends to the end. The Pulse cards
     // iterate the same array, so they re-sort to match automatically.
     const reorderPulseTeams = (dragId, beforeId) => {
@@ -163,8 +169,9 @@ export function PulseView() {
                     return (
                       <div style={{ marginBottom: 12 }}>
                         <div className="sf-set-desc" style={{ marginBottom: 6 }}>
-                          Story-points field — instances often have several (e.g. “Story Points”
+                          Default story-points field — instances often have several (e.g. “Story Points”
                           vs “Story point estimate”). Load fields, then search by name or id and pick yours.
+                          Each team can override this in its row below.
                         </div>
                         <div className="sf-tp-addbar" style={{ marginTop: 0, paddingTop: 0, borderTop: 0 }}>
                           {!pulseAllFields ? (
@@ -325,6 +332,33 @@ export function PulseView() {
                             ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
                             : t.jql}
                         </span>
+                        {usePoints && (
+                          pulseAllFields ? (
+                            <select
+                              className="sf-tp-status-sel"
+                              style={{ flex: "0 0 auto", maxWidth: 200 }}
+                              value={t.pointsFieldId || ""}
+                              onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value || null })}
+                              title="Story-points field for this team"
+                            >
+                              <option value="">
+                                Points: default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
+                              </option>
+                              {pulseAllFields.map((f) => (
+                                <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              className="sf-tp-status-sel"
+                              style={{ flex: "0 0 auto", width: 160 }}
+                              placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
+                              value={t.pointsFieldId || ""}
+                              onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value.trim() || null })}
+                              title="Story-points field for this team (or load fields above to pick by name)"
+                            />
+                          )
+                        )}
                         <button className="sf-mini" onClick={() => removePulseTeam(t.id)} title="Remove">✕</button>
                       </div>
                     ))}

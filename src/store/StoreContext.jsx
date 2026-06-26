@@ -410,10 +410,13 @@ export function StoreProvider({ children }) {
     if (!jiraConfigured || pulseConfig.teams.length === 0) return;
     setPulseLoading(true);
     const usePoints = pulseConfig.progressUnit === "points";
-    const fields = ["status", "assignee", ...(usePoints && pulseConfig.pointsFieldId ? [pulseConfig.pointsFieldId] : [])];
     const next = {};
     for (const team of pulseConfig.teams) {
       try {
+        // Each team may override the story-points field; fall back to global.
+        const fieldId = team.pointsFieldId || pulseConfig.pointsFieldId;
+        const pts = (it) => pointsOfPure(it, fieldId);
+        const fields = ["status", "assignee", ...(usePoints && fieldId ? [fieldId] : [])];
         let issues;
         let sprint = null;
         if (team.source === "board" && team.boardId) {
@@ -424,10 +427,10 @@ export function StoreProvider({ children }) {
             if (s) {
               const sprintIssues = await window.jira.sprintIssues(jiraCreds, team.boardId, s.id, fields);
               const committed = usePoints
-                ? sprintIssues.reduce((sum, it) => sum + pointsOf(it), 0)
+                ? sprintIssues.reduce((sum, it) => sum + pts(it), 0)
                 : sprintIssues.length;
               const done = usePoints
-                ? sprintIssues.filter((it) => statusBucket(it) === "done").reduce((sum, it) => sum + pointsOf(it), 0)
+                ? sprintIssues.filter((it) => statusBucket(it) === "done").reduce((sum, it) => sum + pts(it), 0)
                 : sprintIssues.filter((it) => statusBucket(it) === "done").length;
               sprint = { name: s.name, endDate: s.endDate, committed, done };
             }
@@ -438,7 +441,12 @@ export function StoreProvider({ children }) {
           next[team.id] = { error: "Team has no board or JQL configured." };
           continue;
         }
-        next[team.id] = { ...aggregateTeam(issues, usePoints), sprint, boardType: team.boardType };
+        const agg = aggregateTeamPure(issues, {
+          usePoints,
+          pointsFieldId: fieldId,
+          statusMap: pulseConfig.statusMap,
+        });
+        next[team.id] = { ...agg, sprint, boardType: team.boardType };
       } catch (e) {
         next[team.id] = { error: String((e && e.message) || e) };
       }
