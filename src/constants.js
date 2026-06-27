@@ -10,6 +10,9 @@ export const BUCKETS = [
 export const STORAGE_KEY = "foreground:state:v1";
 export const JIRA_KEY = "foreground:jira:v1";
 export const PULSE_KEY = "foreground:pulse:v1";
+// Cached last-fetched Pulse data (separate from config so frequent config
+// writes don't rewrite the larger data blob). Persists across restarts.
+export const PULSEDATA_KEY = "foreground:pulsedata:v1";
 
 export const DEFAULT_SETTINGS = { todayCap: 3, showBalance: true, darkMode: true, teamPulse: false, theme: "a" };
 

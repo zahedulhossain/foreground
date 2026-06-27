@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import {
-  BUCKETS, STORAGE_KEY, JIRA_KEY, PULSE_KEY,
+  BUCKETS, STORAGE_KEY, JIRA_KEY, PULSE_KEY, PULSEDATA_KEY,
   DEFAULT_SETTINGS, DEFAULT_PULSE, DEFAULT_JQL, PALETTE, TEAM_PALETTES,
 } from "../constants.js";
 import { uid } from "../lib/ids.js";
@@ -237,6 +237,15 @@ export function StoreProvider({ children }) {
           setPulseConfig({ ...DEFAULT_PULSE, ...parsed, teams: Array.isArray(parsed.teams) ? parsed.teams : [] });
         }
       } catch {}
+      try {
+        // Restore the last-fetched Pulse data so it survives restarts.
+        const dres = await window.storage.get(PULSEDATA_KEY);
+        if (dres && dres.value) {
+          const parsed = JSON.parse(dres.value);
+          if (parsed.data && typeof parsed.data === "object") setPulseData(parsed.data);
+          if (parsed.lastRun) setPulseLastRun(parsed.lastRun);
+        }
+      } catch {}
       setLoaded(true);
     })();
   }, []);
@@ -455,9 +464,12 @@ export function StoreProvider({ children }) {
         next[team.id] = { error: String((e && e.message) || e) };
       }
     }
+    const now = Date.now();
     setPulseData(next);
     setPulseLoading(false);
-    setPulseLastRun(Date.now());
+    setPulseLastRun(now);
+    // Persist so the last fetch survives an app restart (until the next fetch).
+    try { await window.storage.set(PULSEDATA_KEY, JSON.stringify({ data: next, lastRun: now })); } catch {}
   };
 
   // Load the instance's statuses for the mapping panel (cached for session).
