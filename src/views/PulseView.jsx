@@ -16,6 +16,86 @@ function initials(name) {
   return ((parts[0][0] || "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
+const escapeHtml = (s) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+// Tokenize a JQL string into colored spans (a lightweight Jira-like highlighter).
+// Order matters: strings, then keywords, function names, operators, numbers,
+// punctuation, and finally bare identifiers (fields / values).
+const JQL_RE = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\b(ORDER\s+BY|NOT\s+IN|AND|OR|NOT|IN|IS|WAS|EMPTY|NULL|ASC|DESC|CHANGED|DURING|BEFORE|AFTER|ON|FROM|TO|BY)\b|([A-Za-z_][\w]*)(?=\s*\()|(!=|!~|>=|<=|=|~|<|>)|(\d+(?:\.\d+)?)|([(),])|([A-Za-z_][\w.]*)/gi;
+
+function highlightJql(src) {
+  if (!src) return "";
+  let out = "";
+  let last = 0;
+  let m;
+  JQL_RE.lastIndex = 0;
+  while ((m = JQL_RE.exec(src)) !== null) {
+    if (m.index > last) out += escapeHtml(src.slice(last, m.index));
+    const text = escapeHtml(m[0]);
+    if (m[1]) out += `<span class="jql-str">${text}</span>`;
+    else if (m[2]) out += `<span class="jql-kw">${text}</span>`;
+    else if (m[3]) out += `<span class="jql-fn">${text}</span>`;
+    else if (m[4]) out += `<span class="jql-op">${text}</span>`;
+    else if (m[5]) out += `<span class="jql-num">${text}</span>`;
+    else if (m[6]) out += `<span class="jql-paren">${text}</span>`;
+    else out += `<span class="jql-field">${text}</span>`;
+    last = m.index + m[0].length;
+  }
+  if (last < src.length) out += escapeHtml(src.slice(last));
+  return out;
+}
+
+// A Jira-like JQL editor: syntax-highlighted, selectable, and expandable from a
+// single line to a multi-row textarea. The highlight layer sits behind a
+// transparent textarea so the native caret and text selection still work.
+function JqlEditor({ value, onChange, onSubmit, onCancel, placeholder }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const taRef = React.useRef(null);
+  const hlRef = React.useRef(null);
+  const syncScroll = () => {
+    if (taRef.current && hlRef.current) {
+      hlRef.current.scrollTop = taRef.current.scrollTop;
+      hlRef.current.scrollLeft = taRef.current.scrollLeft;
+    }
+  };
+  // A trailing newline needs a placeholder char so the last line has height.
+  const html = highlightJql(value) + (value.endsWith("\n") ? "​" : "");
+  return (
+    <div className={"sf-jql-editor" + (expanded ? " expanded" : "")}>
+      <div className="sf-jql-hl" ref={hlRef} aria-hidden="true" dangerouslySetInnerHTML={{ __html: html }} />
+      <textarea
+        ref={taRef}
+        className="sf-jql-ta"
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        wrap={expanded ? "soft" : "off"}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={syncScroll}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { onCancel && onCancel(); }
+          else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onSubmit && onSubmit(); }
+          else if (e.key === "Enter" && !expanded) { e.preventDefault(); onSubmit && onSubmit(); }
+        }}
+      />
+      <button
+        type="button"
+        className="sf-jql-expand"
+        title={expanded ? "Collapse" : "Expand"}
+        aria-label={expanded ? "Collapse editor" : "Expand editor"}
+        onClick={() => { setExpanded((v) => !v); if (taRef.current) taRef.current.focus(); }}
+      >
+        {expanded ? (
+          <svg viewBox="0 0 16 16" width="13" height="13"><path d="M2 6h4V2M14 6h-4V2M2 10h4v4M14 10h-4v4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        ) : (
+          <svg viewBox="0 0 16 16" width="13" height="13"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export function PulseView() {
   const {
     dragId, jiraConfigured, jiraCreds, loadPulseBoards, loadPulseFields, loadPulseStatuses, palette, persistPulseConfig, pulseAllFields, pulseBoards, pulseConfig, pulseData, pulseDraft, pulseDragId, pulseDropBeforeId, pulseFieldHint, pulseLastRun, pulseLoading, pulsePointSearch, pulseStatusOpen, pulseStatuses, refreshPulse, setPulseDraft, setPulseDragId, setPulseDropBeforeId, setPulsePointSearch, setPulseStatusOpen, setView, settings, teams, view, windowLabel,
@@ -751,12 +831,12 @@ export function PulseView() {
                     <>
                       <label className="sf-modal-row">
                         <span>JQL</span>
-                        <input
-                          placeholder="JQL — e.g. project = AUTH"
+                        <JqlEditor
                           value={editDraft.jql}
-                          onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
-                          onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
-                          style={{ fontFamily: "'IBM Plex Mono',monospace" }}
+                          onChange={(v) => setEditDraft((d) => ({ ...d, jql: v }))}
+                          onSubmit={() => saveEditTeam(t)}
+                          onCancel={cancelEditTeam}
+                          placeholder="JQL — e.g. project = AUTH"
                         />
                       </label>
                       <label className="sf-tp-asis" style={{ marginLeft: "auto" }}>
@@ -867,12 +947,12 @@ export function PulseView() {
                   <>
                     <label className="sf-modal-row">
                       <span>JQL</span>
-                      <input
-                        placeholder="JQL — e.g. project = AUTH"
+                      <JqlEditor
                         value={pulseDraft.jql}
-                        onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
-                        onKeyDown={(e) => { if (e.key === "Enter") addPulseTeam(); if (e.key === "Escape") setAddTeamOpen(false); }}
-                        style={{ fontFamily: "'IBM Plex Mono',monospace" }}
+                        onChange={(v) => setPulseDraft((d) => ({ ...d, jql: v }))}
+                        onSubmit={addPulseTeam}
+                        onCancel={() => setAddTeamOpen(false)}
+                        placeholder="JQL — e.g. project = AUTH"
                       />
                     </label>
                     <label className="sf-tp-asis" style={{ marginLeft: "auto" }}>
