@@ -25,7 +25,9 @@ export const THEMES = [
 ];
 
 // Team Pulse config: tracked teams + how to read progress.
-//   team = { id, name, source: "board" | "jql", boardId?, boardType?, jql? }
+//   team = { id, name, source: "board" | "jql", boardId?, boardType?, jql?,
+//            progressUnit? } — progressUnit "" (or absent) follows the global
+//   default; "count" | "points" overrides it for this team.
 // statusMap remaps a Jira status NAME → bucket ("new" | "indeterminate" | "done").
 // Anything not listed falls back to the status's own Jira category.
 export const DEFAULT_PULSE = {

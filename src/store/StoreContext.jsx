@@ -52,7 +52,7 @@ export function StoreProvider({ children }) {
   const [pulsePointSearch, setPulsePointSearch] = useState(""); // free-text filter over fields
   const [pulseStatuses, setPulseStatuses] = useState(null); // [{name,category}] from the instance
   const [pulseStatusOpen, setPulseStatusOpen] = useState(false); // status-mapping panel open?
-  const [pulseDraft, setPulseDraft] = useState({ name: "", source: "board", boardId: "", jql: "" });
+  const [pulseDraft, setPulseDraft] = useState({ name: "", source: "board", boardId: "", jql: "", rawJql: false, progressUnit: "", pointsFieldId: "" });
   const [pulseDragId, setPulseDragId] = useState(null);
   const [pulseDropBeforeId, setPulseDropBeforeId] = useState(null);
   const [draft, setDraft] = useState("");
@@ -418,11 +418,13 @@ export function StoreProvider({ children }) {
   const refreshPulse = async () => {
     if (!jiraConfigured || pulseConfig.teams.length === 0) return;
     setPulseLoading(true);
-    const usePoints = pulseConfig.progressUnit === "points";
+    const globalUsePoints = pulseConfig.progressUnit === "points";
     const next = {};
     // Only fetch active teams (active === false means paused).
     for (const team of pulseConfig.teams.filter((t) => t.active !== false)) {
       try {
+        // Each team may override the progress unit; "" (or absent) follows global.
+        const usePoints = team.progressUnit ? team.progressUnit === "points" : globalUsePoints;
         // Each team may override the story-points field; fall back to global.
         const fieldId = team.pointsFieldId || pulseConfig.pointsFieldId;
         const pts = (it) => pointsOfPure(it, fieldId);
@@ -459,7 +461,7 @@ export function StoreProvider({ children }) {
           pointsFieldId: fieldId,
           statusMap: pulseConfig.statusMap,
         });
-        next[team.id] = { ...agg, sprint, boardType: team.boardType };
+        next[team.id] = { ...agg, sprint, boardType: team.boardType, usePoints };
       } catch (e) {
         next[team.id] = { error: String((e && e.message) || e) };
       }

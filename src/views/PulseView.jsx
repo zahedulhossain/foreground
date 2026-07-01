@@ -27,21 +27,28 @@ export function PulseView() {
     const activeTeams = pulseConfig.teams.filter((t) => t.active !== false);
     // Drill-down drawer selection: { teamId, teamName, bucket } | null.
     const [drawer, setDrawer] = React.useState(null);
+
+    // Team edit modal state (opened from a team card).
+    const [editingTeamId, setEditingTeamId] = React.useState(null);
+    const [editDraft, setEditDraft] = React.useState({ name: "", source: "jql", boardId: "", jql: "", rawJql: false, pointsFieldId: "", progressUnit: "" });
+
+    // Team removal confirmation.
+    const [removeConfirmId, setRemoveConfirmId] = React.useState(null);
+
+    // Create-team modal (opened from the Pulse toolbar).
+    const [addTeamOpen, setAddTeamOpen] = React.useState(false);
+
     React.useEffect(() => {
-      const open = drawer || configOpen;
+      const open = drawer || configOpen || editingTeamId || removeConfirmId || addTeamOpen;
       if (!open) return;
-      const onKey = (e) => { if (e.key === "Escape") { setDrawer(null); setConfigOpen(false); } };
+      const onKey = (e) => { if (e.key === "Escape") { setDrawer(null); setConfigOpen(false); setEditingTeamId(null); setRemoveConfirmId(null); setAddTeamOpen(false); } };
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
-    }, [drawer, configOpen]);
-
-    // Per-row inline editing state.
-    const [editingTeamId, setEditingTeamId] = React.useState(null);
-    const [editDraft, setEditDraft] = React.useState({ name: "", source: "jql", boardId: "", jql: "" });
+    }, [drawer, configOpen, editingTeamId, removeConfirmId, addTeamOpen]);
 
     const startEditTeam = (t) => {
       setEditingTeamId(t.id);
-      setEditDraft({ name: t.name, source: t.source, boardId: t.boardId ? String(t.boardId) : "", jql: t.jql || "", rawJql: !!t.rawJql });
+      setEditDraft({ name: t.name, source: t.source, boardId: t.boardId ? String(t.boardId) : "", jql: t.jql || "", rawJql: !!t.rawJql, pointsFieldId: t.pointsFieldId || "", progressUnit: t.progressUnit || "" });
     };
     const cancelEditTeam = () => { setEditingTeamId(null); };
     const saveEditTeam = (t) => {
@@ -56,6 +63,8 @@ export function PulseView() {
         if (!editDraft.jql.trim()) return;
         patch = { name, source: "jql", jql: editDraft.jql.trim(), rawJql: !!editDraft.rawJql, boardId: undefined, boardType: undefined };
       }
+      patch.pointsFieldId = editDraft.pointsFieldId.trim() || null;
+      patch.progressUnit = editDraft.progressUnit || undefined;
       updatePulseTeam(t.id, patch);
       setEditingTeamId(null);
     };
@@ -73,8 +82,11 @@ export function PulseView() {
         if (!pulseDraft.jql.trim()) return;
         team = { id: uid(), name, active: true, source: "jql", jql: pulseDraft.jql.trim(), rawJql: !!pulseDraft.rawJql };
       }
+      if (pulseDraft.progressUnit) team.progressUnit = pulseDraft.progressUnit;
+      if (pulseDraft.pointsFieldId && pulseDraft.pointsFieldId.trim()) team.pointsFieldId = pulseDraft.pointsFieldId.trim();
       persistPulseConfig({ ...pulseConfig, teams: [...pulseConfig.teams, team] });
-      setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "", rawJql: false });
+      setPulseDraft({ name: "", source: pulseDraft.source, boardId: "", jql: "", rawJql: false, progressUnit: "", pointsFieldId: "" });
+      setAddTeamOpen(false);
     };
     const removePulseTeam = (id) =>
       persistPulseConfig({ ...pulseConfig, teams: pulseConfig.teams.filter((t) => t.id !== id) });
@@ -99,12 +111,11 @@ export function PulseView() {
       persistPulseConfig({ ...pulseConfig, teams: teamsArr });
     };
 
-    const maxLoad = Math.max(
-      1,
-      ...Object.values(pulseData).flatMap((d) =>
-        d && d.assignees ? d.assignees.map((a) => (usePoints ? a.points : a.count)) : [0]
-      )
-    );
+    // Effective progress unit for a team: its own override, else the global default.
+    const teamUsePoints = (team) => (team.progressUnit ? team.progressUnit === "points" : usePoints);
+    // Person bars are normalized within each team (units may differ across teams).
+    const teamMaxLoad = (d, tup) =>
+      Math.max(1, ...((d && d.assignees ? d.assignees : []).map((a) => (tup ? a.points : a.count))));
 
     // ── KPI targets ─────────────────────────────────────────────────────────
     const kpiTargets = pulseConfig.kpiTargets || {};
@@ -163,7 +174,7 @@ export function PulseView() {
             <div className="sf-tp-grid">
               {activeTeams.map((team) => {
                 const d = pulseData[team.id];
-                const evals = d && !d.error ? evaluateTeamKpis(d, kpiTargets, usePoints) : [];
+                const evals = d && !d.error ? evaluateTeamKpis(d, kpiTargets, teamUsePoints(team)) : [];
                 return (
                   <div className="sf-tp-card" key={team.id}>
                     <div className="sf-tp-card-head"><span className="sf-tp-name">{team.name}</span></div>
@@ -209,7 +220,7 @@ export function PulseView() {
           <div className="sf-tp-firstrun">
             <div className="sf-tp-firstrun-title">No teams tracked yet</div>
             <div className="sf-tp-firstrun-sub">Add the teams you oversee, then refresh to see their pulse.</div>
-            <button className="sf-btn" onClick={() => setConfigOpen(true)}>Configure teams</button>
+            <button className="sf-btn" onClick={() => setAddTeamOpen(true)}>Add team</button>
           </div>
         );
       }
@@ -220,12 +231,17 @@ export function PulseView() {
         <div className="sf-tp-grid">
           {activeTeams.map((team) => {
             const d = pulseData[team.id];
+            const tup = teamUsePoints(team);
+            const cardMaxLoad = teamMaxLoad(d, tup);
             return (
               <div className="sf-tp-card" key={team.id}>
                 <div className="sf-tp-card-head">
                   <span className="sf-tp-name">{team.name}</span>
-                  <span className={"sf-tp-src" + (team.source === "board" ? " board" : " jql")}>
-                    {team.source === "board" ? `${team.boardType || "board"}` : "jql"}
+                  <span className="sf-tp-card-head-right">
+                    <span className={"sf-tp-src" + (team.source === "board" ? " board" : " jql")}>
+                      {team.source === "board" ? `${team.boardType || "board"}` : "jql"}
+                    </span>
+                    <button className="sf-mini" onClick={() => startEditTeam(team)} title="Edit team">✎</button>
                   </span>
                 </div>
 
@@ -287,7 +303,7 @@ export function PulseView() {
                       <div className="sf-tp-sprint">
                         <div className="sf-tp-sprint-head">
                           <span className="sf-tp-sprint-name">{d.sprint.name}</span>
-                          <span>{d.sprint.done}/{d.sprint.committed} {usePoints ? "pts" : "issues"}</span>
+                          <span>{d.sprint.done}/{d.sprint.committed} {tup ? "pts" : "issues"}</span>
                         </div>
                         <div className="sf-tp-sprint-track">
                           <div className="sf-tp-sprint-fill" style={{ width: `${d.sprint.committed ? (d.sprint.done / d.sprint.committed) * 100 : 0}%` }} />
@@ -299,14 +315,14 @@ export function PulseView() {
                       {d.assignees.length === 0 ? (
                         <div className="sf-tp-blank">No open work.</div>
                       ) : d.assignees.slice(0, 8).map((a) => {
-                        const val = usePoints ? a.points : a.count;
+                        const val = tup ? a.points : a.count;
                         const unassigned = a.name === "Unassigned";
                         return (
                           <div className="sf-tp-person" key={a.name}>
                             <span className={"sf-tp-avatar" + (unassigned ? " unassigned" : "")}>{initials(a.name)}</span>
                             <span className={"sf-tp-person-name" + (unassigned ? " unassigned" : "")}>{a.name}</span>
                             <div className="sf-tp-person-track">
-                              <div className="sf-tp-person-fill" style={{ width: `${(val / maxLoad) * 100}%` }} />
+                              <div className="sf-tp-person-fill" style={{ width: `${(val / cardMaxLoad) * 100}%` }} />
                             </div>
                             <span className="sf-tp-person-num">{val}</span>
                           </div>
@@ -318,8 +334,8 @@ export function PulseView() {
                     </div>
 
                     <div className="sf-tp-foot">
-                      <span>{usePoints ? `${d.openPoints} pts open` : `${d.openCount} open`}</span>
-                      <span>{usePoints ? `${d.donePoints} pts` : `${d.doneCount}`} done{team.rawJql ? "" : ` · ${windowLabel()}`}</span>
+                      <span>{tup ? `${d.openPoints} pts open` : `${d.openCount} open`}</span>
+                      <span>{tup ? `${d.donePoints} pts` : `${d.doneCount}`} done{team.rawJql ? "" : ` · ${windowLabel()}`}</span>
                     </div>
                   </>
                 )}
@@ -401,7 +417,7 @@ export function PulseView() {
             </div>
           </div>
 
-          {usePoints && (() => {
+          {(usePoints || pulseConfig.teams.some((t) => t.progressUnit === "points")) && (() => {
             const fq = pulsePointSearch.trim().toLowerCase();
             const matches = pulseAllFields
               ? pulseAllFields
@@ -554,7 +570,7 @@ export function PulseView() {
             }}
           >
             {pulseConfig.teams.length === 0 && (
-              <div className="sf-tp-blank">No teams yet — add one below.</div>
+              <div className="sf-tp-blank">No teams yet — add one from the Pulse toolbar.</div>
             )}
             {pulseConfig.teams.length > 0 && pulseConfig.teams.filter((t) => !hideInactive || t.active !== false).length === 0 && (
               <div className="sf-tp-blank">All teams are inactive — uncheck "hide inactive" to see them.</div>
@@ -570,8 +586,8 @@ export function PulseView() {
                   (pulseDropBeforeId === t.id && pulseDragId && pulseDragId !== t.id ? " drop-before" : "")
                 }
                 key={t.id}
-                draggable={editingTeamId !== t.id}
-                onDragStart={(e) => { if (editingTeamId === t.id) { e.preventDefault(); return; } setPulseDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+                draggable
+                onDragStart={(e) => { setPulseDragId(t.id); e.dataTransfer.effectAllowed = "move"; }}
                 onDragEnd={() => { setPulseDragId(null); setPulseDropBeforeId(null); }}
                 onDragOver={(e) => {
                   if (!pulseDragId || pulseDragId === t.id) return;
@@ -588,162 +604,18 @@ export function PulseView() {
                 }}
               >
                 <span className="sf-tp-cfg-grip" title="Drag to reorder">⋮⋮</span>
-                {editingTeamId === t.id ? (
-                  <>
-                    <input
-                      style={{ flex: "0 1 140px" }}
-                      value={editDraft.name}
-                      onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
-                      placeholder="Team name"
-                      autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
-                    />
-                    <select
-                      value={editDraft.source}
-                      onChange={(e) => setEditDraft((d) => ({ ...d, source: e.target.value }))}
-                    >
-                      <option value="board">Board</option>
-                      <option value="jql">JQL</option>
-                    </select>
-                    {editDraft.source === "board" ? (
-                      pulseBoards ? (
-                        <select
-                          value={editDraft.boardId}
-                          onChange={(e) => setEditDraft((d) => ({ ...d, boardId: e.target.value }))}
-                          style={{ flex: "1 1 200px" }}
-                        >
-                          <option value="">Select a board…</option>
-                          {pulseBoards.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
-                      )
-                    ) : (
-                      <>
-                        <input
-                          placeholder="JQL — e.g. project = AUTH"
-                          value={editDraft.jql}
-                          onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
-                          onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
-                          style={{ flex: "1 1 220px", fontFamily: "'IBM Plex Mono',monospace" }}
-                        />
-                        <label className="sf-tp-asis" title="Run this JQL verbatim — don't append the done-window">
-                          <input
-                            type="checkbox"
-                            checked={!!editDraft.rawJql}
-                            onChange={(e) => setEditDraft((d) => ({ ...d, rawJql: e.target.checked }))}
-                          />
-                          as-is
-                        </label>
-                      </>
-                    )}
-                    <button className="sf-mini" onClick={() => saveEditTeam(t)} title="Save">✓</button>
-                    <button className="sf-mini" onClick={cancelEditTeam} title="Cancel">✕</button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type="checkbox"
-                      className="sf-tp-active-cb"
-                      checked={t.active !== false}
-                      onChange={(e) => updatePulseTeam(t.id, { active: e.target.checked })}
-                      title={t.active !== false ? "Active — fetched on refresh" : "Inactive — skipped on refresh"}
-                      aria-label="Active"
-                    />
-                    <span className="sf-tp-cfg-name">{t.name}</span>
-                    <span className="sf-tp-cfg-def">
-                      {t.source === "board"
-                        ? `board #${t.boardId}${t.boardType ? ` · ${t.boardType}` : ""}`
-                        : t.jql}
-                      {t.source === "jql" && t.rawJql && (
-                        <span className="sf-tp-asis-tag" title="Runs verbatim — done-window not applied"> · as-is</span>
-                      )}
-                    </span>
-                    {usePoints && (
-                      pulseAllFields ? (
-                        <select
-                          className="sf-tp-status-sel"
-                          style={{ flex: "0 0 auto", maxWidth: 200 }}
-                          value={t.pointsFieldId || ""}
-                          onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value || null })}
-                          title="Story-points field for this team"
-                        >
-                          <option value="">
-                            Points: default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
-                          </option>
-                          {pulseAllFields.map((f) => (
-                            <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          className="sf-tp-status-sel"
-                          style={{ flex: "0 0 auto", width: 160 }}
-                          placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
-                          value={t.pointsFieldId || ""}
-                          onChange={(e) => updatePulseTeam(t.id, { pointsFieldId: e.target.value.trim() || null })}
-                          title="Story-points field for this team (or load fields above to pick by name)"
-                        />
-                      )
-                    )}
-                    <button className="sf-mini" onClick={() => startEditTeam(t)} title="Edit">✎</button>
-                    <button className="sf-mini" onClick={() => removePulseTeam(t.id)} title="Remove">✕</button>
-                  </>
-                )}
+                <input
+                  type="checkbox"
+                  className="sf-tp-active-cb"
+                  checked={t.active !== false}
+                  onChange={(e) => updatePulseTeam(t.id, { active: e.target.checked })}
+                  title={t.active !== false ? "Active — fetched on refresh" : "Inactive — skipped on refresh"}
+                  aria-label="Active"
+                />
+                <span className="sf-tp-cfg-name">{t.name}</span>
+                <button className="sf-mini" onClick={() => setRemoveConfirmId(t.id)} title="Remove">✕</button>
               </div>
             ))}
-
-            <div className="sf-tp-addbar">
-              <input
-                placeholder="Team name"
-                value={pulseDraft.name}
-                onChange={(e) => setPulseDraft((d) => ({ ...d, name: e.target.value }))}
-                style={{ flex: "0 1 160px" }}
-              />
-              <select
-                value={pulseDraft.source}
-                onChange={(e) => setPulseDraft((d) => ({ ...d, source: e.target.value }))}
-              >
-                <option value="board">Board</option>
-                <option value="jql">JQL</option>
-              </select>
-              {pulseDraft.source === "board" ? (
-                pulseBoards ? (
-                  <select
-                    value={pulseDraft.boardId}
-                    onChange={(e) => setPulseDraft((d) => ({ ...d, boardId: e.target.value }))}
-                    style={{ flex: "1 1 220px" }}
-                  >
-                    <option value="">Select a board…</option>
-                    {pulseBoards.map((b) => (
-                      <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
-                    ))}
-                  </select>
-                ) : (
-                  <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
-                )
-              ) : (
-                <>
-                  <input
-                    placeholder="JQL — e.g. project = AUTH"
-                    value={pulseDraft.jql}
-                    onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
-                    style={{ flex: "1 1 260px", fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5 }}
-                  />
-                  <label className="sf-tp-asis" title="Run this JQL verbatim — don't append the done-window">
-                    <input
-                      type="checkbox"
-                      checked={!!pulseDraft.rawJql}
-                      onChange={(e) => setPulseDraft((d) => ({ ...d, rawJql: e.target.checked }))}
-                    />
-                    as-is
-                  </label>
-                </>
-              )}
-              <button className="sf-btn" onClick={addPulseTeam} disabled={!pulseDraft.name.trim()}>Add team</button>
-            </div>
           </div>
         </div>
       </>
@@ -757,9 +629,11 @@ export function PulseView() {
         {/* Drill-down drawer */}
         {drawer && (() => {
           const data = pulseData[drawer.teamId];
+          const drawerTeam = pulseConfig.teams.find((t) => t.id === drawer.teamId);
+          const drawerUsePoints = drawerTeam ? teamUsePoints(drawerTeam) : usePoints;
           const rows = (data && data.byBucket && data.byBucket[drawer.bucket]) || [];
           const sorted = [...rows].sort((a, b) =>
-            usePoints ? (b.points - a.points) : String(a.key).localeCompare(String(b.key))
+            drawerUsePoints ? (b.points - a.points) : String(a.key).localeCompare(String(b.key))
           );
           const ptsSum = rows.reduce((s, r) => s + (r.points || 0), 0);
           return (
@@ -769,7 +643,7 @@ export function PulseView() {
                   <div>
                     <div className="sf-dw-title">{drawer.teamName} · {bucketLabel[drawer.bucket]}</div>
                     <div className="sf-dw-sub">
-                      {rows.length} issue{rows.length === 1 ? "" : "s"}{usePoints ? ` · ${ptsSum} pts` : ""}
+                      {rows.length} issue{rows.length === 1 ? "" : "s"}{drawerUsePoints ? ` · ${ptsSum} pts` : ""}
                       {drawer.bucket === "done" && !drawer.raw ? ` · resolved in ${windowLabel()}` : ""}
                     </div>
                   </div>
@@ -794,7 +668,7 @@ export function PulseView() {
                         <div className="sf-dw-meta">
                           {r.status || "—"}
                           {r.assignee ? ` · ${r.assignee}` : " · Unassigned"}
-                          {usePoints && r.points ? ` · ${r.points} pts` : ""}
+                          {drawerUsePoints && r.points ? ` · ${r.points} pts` : ""}
                         </div>
                       </div>
                     </a>
@@ -820,6 +694,268 @@ export function PulseView() {
             </div>
           </div>
         )}
+
+        {/* Team edit modal */}
+        {editingTeamId && (() => {
+          const t = pulseConfig.teams.find((x) => x.id === editingTeamId);
+          if (!t) return null;
+          return (
+            <div className="sf-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) cancelEditTeam(); }}>
+              <div className="sf-modal">
+                <div className="sf-dw-head">
+                  <div>
+                    <div className="sf-dw-title">Edit team</div>
+                    <div className="sf-dw-sub">{t.name}</div>
+                  </div>
+                  <button className="sf-dw-close" onClick={cancelEditTeam} title="Close (Esc)">✕</button>
+                </div>
+                <div className="sf-modal-body">
+                  <label className="sf-modal-row">
+                    <span>Team name</span>
+                    <input
+                      value={editDraft.name}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
+                      placeholder="Team name"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
+                    />
+                  </label>
+                  <label className="sf-modal-row">
+                    <span>Source</span>
+                    <select
+                      value={editDraft.source}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, source: e.target.value }))}
+                    >
+                      <option value="board">Board</option>
+                      <option value="jql">JQL</option>
+                    </select>
+                  </label>
+                  {editDraft.source === "board" ? (
+                    <label className="sf-modal-row">
+                      <span>Board</span>
+                      {pulseBoards ? (
+                        <select
+                          value={editDraft.boardId}
+                          onChange={(e) => setEditDraft((d) => ({ ...d, boardId: e.target.value }))}
+                        >
+                          <option value="">Select a board…</option>
+                          {pulseBoards.map((b) => (
+                            <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
+                      )}
+                    </label>
+                  ) : (
+                    <>
+                      <label className="sf-modal-row">
+                        <span>JQL</span>
+                        <input
+                          placeholder="JQL — e.g. project = AUTH"
+                          value={editDraft.jql}
+                          onChange={(e) => setEditDraft((d) => ({ ...d, jql: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === "Enter") saveEditTeam(t); if (e.key === "Escape") cancelEditTeam(); }}
+                          style={{ fontFamily: "'IBM Plex Mono',monospace" }}
+                        />
+                      </label>
+                      <label className="sf-tp-asis" style={{ marginLeft: "auto" }}>
+                        <input
+                          type="checkbox"
+                          checked={!!editDraft.rawJql}
+                          onChange={(e) => setEditDraft((d) => ({ ...d, rawJql: e.target.checked }))}
+                        />
+                        as-is
+                        <span className="sf-info-icon" title="Run this JQL verbatim — don't append the done-window">ⓘ</span>
+                      </label>
+                    </>
+                  )}
+                  <label className="sf-modal-row">
+                    <span>Progress unit</span>
+                    <select
+                      value={editDraft.progressUnit}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, progressUnit: e.target.value }))}
+                    >
+                      <option value="">Default ({usePoints ? "points" : "count"})</option>
+                      <option value="count">Count issues</option>
+                      <option value="points">Story points</option>
+                    </select>
+                  </label>
+                  {(editDraft.progressUnit ? editDraft.progressUnit === "points" : usePoints) && (
+                    <label className="sf-modal-row">
+                      <span>Story-points field</span>
+                      {pulseAllFields ? (
+                        <select
+                          value={editDraft.pointsFieldId}
+                          onChange={(e) => setEditDraft((d) => ({ ...d, pointsFieldId: e.target.value }))}
+                        >
+                          <option value="">
+                            Default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
+                          </option>
+                          {pulseAllFields.map((f) => (
+                            <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
+                          value={editDraft.pointsFieldId}
+                          onChange={(e) => setEditDraft((d) => ({ ...d, pointsFieldId: e.target.value }))}
+                        />
+                      )}
+                    </label>
+                  )}
+                </div>
+                <div className="sf-modal-foot">
+                  <button className="sf-set-btn" onClick={cancelEditTeam}>Cancel</button>
+                  <button className="sf-btn" onClick={() => saveEditTeam(t)}>Save</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Create-team modal */}
+        {addTeamOpen && (
+          <div className="sf-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setAddTeamOpen(false); }}>
+            <div className="sf-modal">
+              <div className="sf-dw-head">
+                <div>
+                  <div className="sf-dw-title">Add team</div>
+                </div>
+                <button className="sf-dw-close" onClick={() => setAddTeamOpen(false)} title="Close (Esc)">✕</button>
+              </div>
+              <div className="sf-modal-body">
+                <label className="sf-modal-row">
+                  <span>Team name</span>
+                  <input
+                    value={pulseDraft.name}
+                    onChange={(e) => setPulseDraft((d) => ({ ...d, name: e.target.value }))}
+                    placeholder="Team name"
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") addPulseTeam(); if (e.key === "Escape") setAddTeamOpen(false); }}
+                  />
+                </label>
+                <label className="sf-modal-row">
+                  <span>Source</span>
+                  <select
+                    value={pulseDraft.source}
+                    onChange={(e) => setPulseDraft((d) => ({ ...d, source: e.target.value }))}
+                  >
+                    <option value="board">Board</option>
+                    <option value="jql">JQL</option>
+                  </select>
+                </label>
+                {pulseDraft.source === "board" ? (
+                  <label className="sf-modal-row">
+                    <span>Board</span>
+                    {pulseBoards ? (
+                      <select
+                        value={pulseDraft.boardId}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, boardId: e.target.value }))}
+                      >
+                        <option value="">Select a board…</option>
+                        {pulseBoards.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name} ({b.type})</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <button className="sf-set-btn" onClick={loadPulseBoards}>Load boards</button>
+                    )}
+                  </label>
+                ) : (
+                  <>
+                    <label className="sf-modal-row">
+                      <span>JQL</span>
+                      <input
+                        placeholder="JQL — e.g. project = AUTH"
+                        value={pulseDraft.jql}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, jql: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === "Enter") addPulseTeam(); if (e.key === "Escape") setAddTeamOpen(false); }}
+                        style={{ fontFamily: "'IBM Plex Mono',monospace" }}
+                      />
+                    </label>
+                    <label className="sf-tp-asis" style={{ marginLeft: "auto" }}>
+                      <input
+                        type="checkbox"
+                        checked={!!pulseDraft.rawJql}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, rawJql: e.target.checked }))}
+                      />
+                      as-is
+                      <span className="sf-info-icon" title="Run this JQL verbatim — don't append the done-window">ⓘ</span>
+                    </label>
+                  </>
+                )}
+                <label className="sf-modal-row">
+                  <span>Progress unit</span>
+                  <select
+                    value={pulseDraft.progressUnit}
+                    onChange={(e) => setPulseDraft((d) => ({ ...d, progressUnit: e.target.value }))}
+                  >
+                    <option value="">Default ({usePoints ? "points" : "count"})</option>
+                    <option value="count">Count issues</option>
+                    <option value="points">Story points</option>
+                  </select>
+                </label>
+                {(pulseDraft.progressUnit ? pulseDraft.progressUnit === "points" : usePoints) && (
+                  <label className="sf-modal-row">
+                    <span>Story-points field</span>
+                    {pulseAllFields ? (
+                      <select
+                        value={pulseDraft.pointsFieldId}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, pointsFieldId: e.target.value }))}
+                      >
+                        <option value="">
+                          Default{pulseConfig.pointsFieldId ? ` (${pulseConfig.pointsFieldId})` : ""}
+                        </option>
+                        {pulseAllFields.map((f) => (
+                          <option key={f.id} value={f.id}>{f.name} ({f.id})</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        placeholder={pulseConfig.pointsFieldId ? `pts: ${pulseConfig.pointsFieldId}` : "pts field id"}
+                        value={pulseDraft.pointsFieldId}
+                        onChange={(e) => setPulseDraft((d) => ({ ...d, pointsFieldId: e.target.value }))}
+                      />
+                    )}
+                  </label>
+                )}
+              </div>
+              <div className="sf-modal-foot">
+                <button className="sf-set-btn" onClick={() => setAddTeamOpen(false)}>Cancel</button>
+                <button className="sf-btn" onClick={addPulseTeam} disabled={!pulseDraft.name.trim()}>Add team</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Remove team confirmation */}
+        {removeConfirmId && (() => {
+          const t = pulseConfig.teams.find((x) => x.id === removeConfirmId);
+          if (!t) return null;
+          return (
+            <div className="sf-modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setRemoveConfirmId(null); }}>
+              <div className="sf-modal sf-modal-narrow">
+                <div className="sf-dw-head">
+                  <div>
+                    <div className="sf-dw-title">Remove team?</div>
+                  </div>
+                  <button className="sf-dw-close" onClick={() => setRemoveConfirmId(null)} title="Close (Esc)">✕</button>
+                </div>
+                <div className="sf-modal-body">
+                  <div className="sf-modal-confirm-text">
+                    Remove <strong>{t.name}</strong> from tracked teams? This can't be undone.
+                  </div>
+                </div>
+                <div className="sf-modal-foot">
+                  <button className="sf-set-btn" onClick={() => setRemoveConfirmId(null)}>Cancel</button>
+                  <button className="sf-btn danger" onClick={() => { removePulseTeam(t.id); setRemoveConfirmId(null); }}>Remove</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <Sidebar view={view} setView={setView} pulseEnabled={settings.teamPulse} />
         <main className="sf-main">
@@ -864,6 +1000,7 @@ export function PulseView() {
                           : "not refreshed yet"}
                     </span>
                     <button className="sf-set-btn" onClick={() => setConfigOpen(true)}>⚙ Configure</button>
+                    <button className="sf-set-btn" onClick={() => setAddTeamOpen(true)}>+ Add team</button>
                     <button
                       className="sf-btn"
                       onClick={refreshPulse}
